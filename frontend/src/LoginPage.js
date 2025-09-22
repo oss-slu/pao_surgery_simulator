@@ -13,7 +13,8 @@ function LoginPage() {
     setError(null);
 
     try {
-      const res = await fetch("http://127.0.0.1:5000/api/login", {
+      const apiUrl = process.env.REACT_APP_API_URL || "http://127.0.0.1:5000";
+      const res = await fetch(`${apiUrl}/api/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -22,7 +23,10 @@ function LoginPage() {
       });
 
       if (!res.ok) {
-        throw new Error(`HTTP error! Status: ${res.status}`);
+        if (res.status === 401) {
+          throw new Error("Invalid username or password");
+        }
+        throw new Error("Something went wrong. Please try again later.");
       }
 
       const data = await res.json();
@@ -36,7 +40,6 @@ function LoginPage() {
 
   return (
     <div>
-      <h2>Login Form</h2>
       <form onSubmit={handleSubmit}>
         <div>
           <label>
