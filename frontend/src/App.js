@@ -1,30 +1,39 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import LoginPage from "./LoginPage";
+import './App.css';
 
 function App() {
   const [user, setUser] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [fileName, setFileName] = useState("No file chosen");
+  const fileInputRef = useRef(null);
 
-  // When login is successful
   const handleLoginSuccess = (userData) => {
     setUser(userData);
   };
 
-  // Logout
   const handleLogout = () => {
     setUser(null);
     setSelectedImage(null);
+    setFileName("No file chosen");
   };
 
-  // Handle file select & preview
   const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (file && file.type.startsWith("image/")) {
       setSelectedImage(URL.createObjectURL(file));
+      setFileName(file.name);
     } else {
       setSelectedImage(null);
-      alert("Please select an image file!");
+      setFileName("No file chosen");
+      if (file) {
+        alert("Please select an image file!");
+      }
     }
+  };
+
+  const handleButtonClick = () => {
+    fileInputRef.current.click();
   };
 
   if (!user) {
@@ -32,36 +41,44 @@ function App() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="bg-white shadow-lg rounded-2xl p-8 w-full max-w-md text-center">
-        <h2 className="text-2xl font-bold mb-6">
+    <div className="app-container">
+      <div className="welcome-card">
+        <h2>
           Welcome to Simulation Surgery, {user.username}!
         </h2>
 
-        {/* File upload */}
         <input
           type="file"
           accept="image/*"
           onChange={handleFileChange}
-          className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 mb-4"
+          ref={fileInputRef}
+          className="input-file-hidden"
         />
 
-        {/* Image preview */}
+        <button onClick={handleButtonClick} className="file-upload-button">
+          Choose Image
+        </button>
+        
+        {/* --- NEW FILE DISPLAY --- */}
+        <div className="file-display">
+          <svg
+            className="file-icon"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zM6 20V4h7v5h5v11H6z" />
+          </svg>
+          <span className="file-name">{fileName}</span>
+        </div>
+
         {selectedImage && (
-          <div className="mb-4">
-            <img
-              src={selectedImage}
-              alt="Preview"
-              className="mx-auto max-h-64 rounded-lg shadow"
-            />
+          <div className="image-preview">
+            <img src={selectedImage} alt="Preview" />
           </div>
         )}
 
-        {/* Logout button */}
-        <button
-          onClick={handleLogout}
-          className="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg"
-        >
+        <button onClick={handleLogout} className="logout-button">
           Logout
         </button>
       </div>
