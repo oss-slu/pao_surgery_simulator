@@ -1,7 +1,6 @@
 import React, { useState, useRef } from "react";
 import LoginPage from "./LoginPage";
 import './App.css';
-import VTKViewer from "./VTKViewer";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -83,10 +82,6 @@ function App() {
           Logout
         </button>
       </div>
-    <div style={{ padding: "20px", textAlign: "center" }}>
-      <h1>Welcome to Simulation Surgery</h1>
-        <LoginPage />
-        <VTKViewer />
     </div>
   );
 }
