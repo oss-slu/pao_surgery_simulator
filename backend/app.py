@@ -12,19 +12,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def hello():
     return jsonify({"message": "Hello from Flask Backend!"})
 
-@app.route("/api/login", methods=["POST"])
-def login():
-    data = request.get_json()  
-    username = data.get("username")
-    password = data.get("password")
-
-    
-    if username == "admin" and password == "admin123":
-        return jsonify({"success": True, "message": "Login successful"})
-    else:
-        return jsonify({"success": False, "message": "Invalid credentials"}), 401
-
-
 @app.route("/api/upload", methods=["POST"])
 def upload_file():
     if "file" not in request.files:
