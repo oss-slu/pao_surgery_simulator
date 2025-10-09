@@ -60,7 +60,7 @@ function App() {
           Choose Image
         </button>
         
-        {/* --- NEW FILE DISPLAY --- */}
+        
         <div className="file-display">
           <svg
             className="file-icon"

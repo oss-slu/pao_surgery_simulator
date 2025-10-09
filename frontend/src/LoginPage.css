@@ -1,4 +1,4 @@
-/* LoginPage.css */
+
 
 .login-page {
   display: flex;
@@ -8,7 +8,7 @@
   font-family: sans-serif;
 }
 
-/* Left Panel Styling */
+
 .left-panel {
   flex: 1; 
   background: linear-gradient(160deg, #81c7f5 0%, #6473e3 100%);
@@ -39,12 +39,12 @@
   opacity: 0.8;
 }
 
-/* --- RIGHT PANEL (UPDATED) --- */
+
 .right-panel {
   flex: 2; 
   background-color: #fcefee;
   display: flex;
-  /* These two lines are CRITICAL for centering */
+  
   justify-content: center;
   align-items: center;
 }
@@ -59,7 +59,7 @@
   text-align: center;
 }
 
-/* Tabs Styling */
+
 .tabs {
   display: flex;
   justify-content: center;
@@ -92,7 +92,7 @@
   background-color: #6a5af9;
 }
 
-/* Form Styling */
+
 .form-group {
   margin-bottom: 1.5rem;
   text-align: left;
