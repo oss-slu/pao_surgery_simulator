@@ -1,5 +1,6 @@
 import React, { useState, useRef } from "react";
 import LoginPage from "./LoginPage";
+import VTKViewer from "./VTKViewer";
 import './App.css';
 
 function App() {
@@ -73,9 +74,16 @@ function App() {
         </div>
 
         {selectedImage && (
-          <div className="image-preview">
+          <>
+            <div className="image-preview">
             <img src={selectedImage} alt="Preview" />
-          </div>
+            </div>
+
+            <div className="vtk-viewer-container">
+              <h3>3D Model Viewer</h3>
+                <VTKViewer modelUrl="/models/cube.obj" />
+            </div>
+        </>
         )}
 
         <button onClick={handleLogout} className="logout-button">

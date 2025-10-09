@@ -102,3 +102,21 @@
 .logout-button:hover {
   background-color: #c0392b;
 }
+
+.vtk-viewer-container {
+  margin-top: 20px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px;
+  background-color: #fafafa;
+}
+
+.vtk-viewer-container h3 {
+  margin: 0 0 10px 0;
+  font-weight: 600;
+  color: #333;
+}
+
+.vtk-viewer-container canvas {
+  display: block;
+}
