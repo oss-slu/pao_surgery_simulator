@@ -6,9 +6,8 @@ import vtkRenderWindowInteractor from "vtk.js/Sources/Rendering/Core/RenderWindo
 import vtkOBJReader from "vtk.js/Sources/IO/Misc/OBJReader";
 import vtkMapper from "vtk.js/Sources/Rendering/Core/Mapper";
 import vtkActor from "vtk.js/Sources/Rendering/Core/Actor";
-import vtkPolyDataNormals from "vtk.js/Sources/Filters/Core/PolyDataNormals";
 
-const VTKViewer = ({ modelUrl = "/models/cube.obj" }) => {
+const VTKViewer = () => {
   const containerRef = useRef(null);
   const initializedRef = useRef(false);
 
@@ -21,65 +20,56 @@ const VTKViewer = ({ modelUrl = "/models/cube.obj" }) => {
     if (width === 0 || height === 0) return; // Avoid zero-size container
 
     // Renderer and render window 
-    const renderer = vtkRenderer.newInstance({ background: [0.1, 0.1, 0.1] });
     const renderWindow = vtkRenderWindow.newInstance();
-    renderWindow.addRenderer(renderer);
-
+    const renderer = vtkRenderer.newInstance({ background: [0.1, 0.1, 0.1] });
     const openGLRenderWindow = vtkOpenGLRenderWindow.newInstance();
-    openGLRenderWindow.setContainer(container);
-    openGLRenderWindow.setSize(width, height);
+    renderWindow.addRenderer(renderer);
+    renderWindow.addView(openGLRenderWindow);
 
-    // Defer interactor setup until view is ready 
-    requestAnimationFrame(() => {
-      const interactor = vtkRenderWindowInteractor.newInstance();
-      interactor.setView(openGLRenderWindow);
-      interactor.initialize();
-      interactor.setContainer(container);
+    const interactor = vtkRenderWindowInteractor.newInstance();
+    interactor.setView(openGLRenderWindow);
+    interactor.initialize();
+    interactor.setContainer(containerRef.current);
+    interactor.start();
 
-      fetch(modelUrl)
-        .then((res) => res.text())
-        .then((text) => {
-          const reader = vtkOBJReader.newInstance();
-          reader.parseAsText(text);
+    const reader = vtkOBJReader.newInstance();
+    const modelUrl = process.env.PUBLIC_URL + "/models/cube.obj";
+    console.log("Loading model from:", modelUrl);
 
-          const polyData = reader.getOutputData();
-          if (!polyData || !polyData.getPoints()) {
-            console.error("OBJ model is invalid or empty:", modelUrl);
-            return;
-          }
+    reader
+      .setUrl(modelUrl)
+      .then(() => {
+        const mapper = vtkMapper.newInstance();
+        mapper.setInputConnection(reader.getOutputPort());
 
-          const normals = vtkPolyDataNormals.newInstance();
-          normals.setInputData(polyData);
+        const actor = vtkActor.newInstance();
+        actor.setMapper(mapper);
 
-          const mapper = vtkMapper.newInstance();
-          mapper.setInputConnection(normals.getOutputPort());
-
-          const actor = vtkActor.newInstance();
-          actor.setMapper(mapper);
-
-          renderer.addActor(actor);
-          renderer.resetCamera();
-          renderer.resetCameraClippingRange();
-          renderWindow.render();
-        })
-        .catch((err) => console.error("Failed to load OBJ model:", err));
+        renderer.addActor(actor);
+        renderer.resetCamera();
+        renderWindow.render();
+      })
+    .catch((err) => {
+        console.error("Failed to load OBJ model:", err);
     });
 
-    // Cleanup
+    // --- Cleanup ---
     return () => {
-      if (containerRef.current) {
-        containerRef.current.innerHTML = "";
-      }
-      renderWindow.delete();
-      renderer.delete();
+      interactor.delete();
       openGLRenderWindow.delete();
+      renderer.delete();
+      renderWindow.delete();
     };
-  }, [modelUrl]);
+  }, []);
 
   return (
     <div
       ref={containerRef}
-      style={{ width: "100%", height: "500px", border: "1px solid #ccc" }}
+      style={{
+        width: "100%",
+        height: "100vh",
+        background: "#000",
+      }}
     />
   );
 };
