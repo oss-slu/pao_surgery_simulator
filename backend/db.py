@@ -1,19 +1,33 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from config import config
+from contextlib import contextmanager
 
+params = config()
+print(f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}")
+engine = create_engine(f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}",
+                       pool_size=5,
+                       max_overflow=10,
+                       pool_timeout=30,
+                       pool_recycle=1800)
+
+@contextmanager
 def connect():
+    conn = None
     try:
-        params = config()
-        connection_string = f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}"
-        engine = create_engine(connection_string)
-        connection = engine.connect()
-        return connection
+        conn = engine.connect()
+        yield conn
     except:
-        return print("Connection failed")
+        print("Connection failed")
+        raise
+    finally:
+        if conn:
+            conn.close()
 
 if __name__ == '__main__':
-    connection = connect()
-    result = connection.execute("select version();")
-    for row in result:
-        print(row)
-    connection.close()
+    try:
+        with connect() as conn:
+            result = conn.execute(text("select version();"))
+            for row in result:
+                print(row)
+    except:
+        print("Test failed")
