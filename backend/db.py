@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from config import config
 from sqlalchemy.orm import sessionmaker, declarative_base
+from contextlib import contextmanager
 
 params = config()
 engine = create_engine(f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}",
@@ -12,10 +13,15 @@ engine = create_engine(f"postgresql://{params['user']}:{params['password']}@{par
 Session = sessionmaker(autoflush=False, bind=engine)
 Base = declarative_base()
 
-def get_db():
+@contextmanager
+def connect():
     db = Session()
     try:
         yield db
+        db.commit()
+    except:
+        db.rollback()
+        raise
     finally:
         db.close()
 

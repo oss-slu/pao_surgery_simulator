@@ -25,7 +25,3 @@ class Image(Base):
     file_type: Mapped[str] = mapped_column(String(255), nullable=False)
     upload_date: Mapped = mapped_column(TIMESTAMP, server_default=func.now())
     patient: Mapped["Patient"] = relationship("Patient", back_populates="images")
-
-if __name__ == '__main__':
-    from db import engine
-    Base.metadata.create_all(bind=engine)
