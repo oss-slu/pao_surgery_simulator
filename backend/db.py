@@ -1,19 +1,29 @@
 from sqlalchemy import create_engine
 from config import config
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-def connect():
+params = config()
+engine = create_engine(f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}",
+                       pool_size=5,
+                       max_overflow=10,
+                       pool_timeout=30,
+                       pool_recycle=1800)
+
+Session = sessionmaker(autoflush=False, bind=engine)
+Base = declarative_base()
+
+def get_db():
+    db = Session()
     try:
-        params = config()
-        connection_string = f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}"
-        engine = create_engine(connection_string)
-        connection = engine.connect()
-        return connection
-    except:
-        return print("Connection failed")
+        yield db
+    finally:
+        db.close()
 
 if __name__ == '__main__':
-    connection = connect()
-    result = connection.execute("select version();")
-    for row in result:
-        print(row)
-    connection.close()
+    try:
+        with engine.connect() as conn:
+            result = conn.execute("select version();")
+            for row in result:
+                print(row)
+    except:
+        print("Test failed")
