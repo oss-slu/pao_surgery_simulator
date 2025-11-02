@@ -81,7 +81,7 @@ function App() {
 
             <div className="vtk-viewer-container">
               <h3>3D Model Viewer</h3>
-                <VTKViewer modelUrl="/models/cube.obj" />
+                <VTKViewer />
             </div>
         </>
         )}
