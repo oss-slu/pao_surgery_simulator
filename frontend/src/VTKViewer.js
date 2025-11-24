@@ -1,14 +1,5 @@
 import React, { useRef, useEffect } from "react";
-import vtkRenderWindow from "vtk.js/Sources/Rendering/Core/RenderWindow";
-import vtkRenderer from "vtk.js/Sources/Rendering/Core/Renderer";
-import vtkOpenGLRenderWindow from "vtk.js/Sources/Rendering/OpenGL/RenderWindow";
-import vtkRenderWindowInteractor from "vtk.js/Sources/Rendering/Core/RenderWindowInteractor";
-import vtkInteractorStyleTrackballCamera from "vtk.js/Sources/Interaction/Style/InteractorStyleTrackballCamera";
-import vtkXMLImageDataReader from "vtk.js/Sources/IO/XML/XMLImageDataReader";
-import vtkVolumeMapper from "vtk.js/Sources/Rendering/Core/VolumeMapper";
-import vtkVolume from "vtk.js/Sources/Rendering/Core/Volume";
-import vtkColorTransferFunction from "vtk.js/Sources/Rendering/Core/ColorTransferFunction";
-import vtkPiecewiseFunction from "vtk.js/Sources/Common/DataModel/PiecewiseFunction";
+import vtk from "vtk.js";
 
 const VTKViewer = () => {
   const containerRef = useRef(null);
@@ -29,105 +20,98 @@ const VTKViewer = () => {
     const rect = container.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
 
-    const renderWindow = vtkRenderWindow.newInstance();
-    const renderer = vtkRenderer.newInstance({ background: [0, 0, 0] });
+    const renderWindow = vtk.Rendering.Core.vtkRenderWindow.newInstance();
+    const renderer = vtk.Rendering.Core.vtkRenderer.newInstance({
+      background: [0, 0, 0],
+    });
     renderWindow.addRenderer(renderer);
 
-    const openGLRenderWindow = vtkOpenGLRenderWindow.newInstance();
-    renderWindow.addView(openGLRenderWindow);
-    openGLRenderWindow.setContainer(container);
-    openGLRenderWindow.setSize(rect.width, rect.height);
+    const openGLWindow =
+      vtk.Rendering.OpenGL.vtkRenderWindow.newInstance();
+    renderWindow.addView(openGLWindow);
+    openGLWindow.setContainer(container);
+    openGLWindow.setSize(rect.width, rect.height);
 
-    const interactor = vtkRenderWindowInteractor.newInstance();
-    interactor.setView(openGLRenderWindow);
+    const interactor =
+      vtk.Rendering.Core.vtkRenderWindowInteractor.newInstance();
+    interactor.setView(openGLWindow);
     interactor.initialize();
     interactor.setContainer(container);
-    interactor.setInteractorStyle(vtkInteractorStyleTrackballCamera.newInstance());
 
-    renderWindowRef.current = renderWindow;
+    const style =
+      vtk.Interaction.Style.vtkInteractorStyleTrackballCamera.newInstance();
+    interactor.setInteractorStyle(style);
+
     rendererRef.current = renderer;
-    openGLRef.current = openGLRenderWindow;
+    renderWindowRef.current = renderWindow;
+    openGLRef.current = openGLWindow;
     interactorRef.current = interactor;
 
     const observer = new ResizeObserver(() => {
-      const rect = container.getBoundingClientRect();
-      openGLRenderWindow.setSize(rect.width, rect.height);
+      const r = container.getBoundingClientRect();
+      openGLWindow.setSize(r.width, r.height);
       renderWindow.render();
     });
+
     observer.observe(container);
     resizeObserverRef.current = observer;
 
     rendererInitialized.current = true;
   };
 
-  const handleFile = (event) => {
+  const handleDICOM = async (e) => {
     initRenderer();
-    const file = event.target.files[0];
-    if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const arrayBuffer = reader.result;
-      const vtkReader = vtkXMLImageDataReader.newInstance();
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
 
-      try {
-        vtkReader.parseAsArrayBuffer(arrayBuffer);
-        const image = vtkReader.getOutputData();
-        if (!image) {
-          console.error("Failed to parse VTI file or empty output.");
-          return;
-        }
+    const dicomReader = vtk.IO.Misc.vtkDICOMReader.newInstance();
+    dicomReader.setFileNameStack(files.map((f) => f.name));
 
-        rendererRef.current.getVolumes().slice().forEach((v) =>
-          rendererRef.current.removeVolume(v)
-        );
+    await dicomReader.parseAsArrayBufferSequence(files);
 
-        const mapper = vtkVolumeMapper.newInstance();
-        mapper.setInputData(image);
-        mapper.setSampleDistance(0.1);
+    const imageData = dicomReader.getOutputData();
+    const renderer = rendererRef.current;
+    const renderWindow = renderWindowRef.current;
 
-        const volume = vtkVolume.newInstance();
-        volume.setMapper(mapper);
+    renderer.getVolumes().forEach((v) => renderer.removeVolume(v));
 
-        const scalars = image.getPointData().getScalars();
-        if (!scalars) {
-          console.error("No scalar data in VTI file.");
-          return;
-        }
-        const [min, max] = scalars.getRange();
-        console.log("Scalar range:", min, max);
+    const mapper = vtk.Rendering.Core.vtkVolumeMapper.newInstance();
+    mapper.setInputData(imageData);
 
-        const ctfun = vtkColorTransferFunction.newInstance();
-        const ofun = vtkPiecewiseFunction.newInstance();
-        ctfun.addRGBPoint(min, 0, 0, 0);
-        ctfun.addRGBPoint(max, 1, 1, 1);
-        ofun.addPoint(min, 0.05);
-        ofun.addPoint(max, 0.9);
+    const volume = vtk.Rendering.Core.vtkVolume.newInstance();
+    volume.setMapper(mapper);
 
-        volume.getProperty().setRGBTransferFunction(0, ctfun);
-        volume.getProperty().setScalarOpacity(0, ofun);
-        volume.getProperty().setInterpolationTypeToLinear();
-        volume.getProperty().setShade(true);
-        volume.getProperty().setAmbient(0.2);
-        volume.getProperty().setDiffuse(0.7);
-        volume.getProperty().setSpecular(0.3);
+    const scalars = imageData.getPointData().getScalars();
+    const [min, max] = scalars.getRange();
 
-        rendererRef.current.addVolume(volume);
-        rendererRef.current.resetCamera();
-        rendererRef.current.resetCameraClippingRange();
+    const ctfun =
+      vtk.Rendering.Core.vtkColorTransferFunction.newInstance();
+    const ofun =
+      vtk.Common.DataModel.vtkPiecewiseFunction.newInstance();
 
-        const camera = rendererRef.current.getActiveCamera();
-        camera.zoom(1.2);
+    ctfun.addRGBPoint(min, 0, 0, 0);
+    ctfun.addRGBPoint(max, 1, 1, 1);
 
-        renderWindowRef.current.render();
-      } catch (err) {
-        console.error("Failed to load VTI file:", err);
-      }
-    };
-    reader.readAsArrayBuffer(file);
+    ofun.addPoint(min, 0.05);
+    ofun.addPoint(max, 0.9);
+
+    const prop = volume.getProperty();
+    prop.setRGBTransferFunction(0, ctfun);
+    prop.setScalarOpacity(0, ofun);
+    prop.setShade(true);
+    prop.setInterpolationTypeToLinear();
+
+    renderer.addVolume(volume);
+    renderer.resetCamera();
+    renderer.resetCameraClippingRange();
+
+    const camera = renderer.getActiveCamera();
+    camera.zoom(1.2);
+
+    renderWindow.render();
   };
 
-  // Initialize renderer once on mount
   useEffect(() => {
     initRenderer();
     return () => {
@@ -139,7 +123,13 @@ const VTKViewer = () => {
 
   return (
     <div>
-      <input type="file" accept=".vti" onChange={handleFile} />
+      <input
+        type="file"
+        accept=".dcm"
+        multiple
+        onChange={handleDICOM}
+      />
+
       <div
         ref={containerRef}
         style={{

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import LoginPage from "./LoginPage";
+import LoginPage from "./Components/LoginPage.js";
 import VTKViewer from "./VTKViewer";
 import './App.css';
 
