@@ -1,122 +1,31 @@
-.app-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Global layout for logged-in shell */
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background-color: #f4f6fb;
+}
+
+/* Login / Signup screens */
+.auth-wrapper {
   min-height: 100vh;
-  background-color: #f4f7f6;
-  font-family: sans-serif;
-  padding: 2rem;
-  box-sizing: border-box;
 }
 
-.welcome-card {
-  background-color: white;
-  padding: 3rem 3.5rem;
-  border-radius: 25px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
-  width: 100%;
-  max-width: 950px;
-  text-align: center;
+/* After login: sidebar + main content */
+.app-shell {
+  display: flex;
+  min-height: 100vh;
 }
 
-.welcome-card h2 {
-  font-size: 2.5rem;
-  font-weight: 600;
-  color: #333;
-  margin-top: 0;
-  margin-bottom: 2.5rem;
+.main-content {
+  flex: 1;
+  background: #f4f6fb;
+  overflow: auto;
 }
 
-.input-file-hidden {
-  display: none;
-}
-
-.file-upload-button {
-  background-color: #6a5af9;
-  color: white;
-  padding: 14px 20px;
-  border-radius: 8px;
-  border: none;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.3s ease, transform 0.2s ease;
-  margin-bottom: 1rem;
-}
-
-.file-upload-button:hover {
-  background-color: #5848d8;
-  transform: translateY(-2px);
-}
-
-
-.file-display {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background-color: #f0f0f0;
-  border-radius: 20px;
-  padding: 8px 16px;
-  margin-top: 0.5rem;
-  border: 1px solid #e0e0e0;
-}
-
-.file-icon {
-  width: 20px;
-  height: 20px;
-  fill: #555;
-  margin-right: 10px;
-}
-
-.file-name {
-  color: #333;
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-
-.image-preview {
-  margin-top: 2rem;
-  margin-bottom: 2.5rem;
-}
-
-.image-preview img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 15px;
-  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
-}
-
-.logout-button {
-  width: 100%;
-  padding: 16px;
-  border: none;
-  background-color: #e74c3c;
-  color: white;
-  border-radius: 12px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-}
-
-.logout-button:hover {
-  background-color: #c0392b;
-}
-
-.vtk-viewer-container {
-  margin-top: 20px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 10px;
-  background-color: #fafafa;
-}
-
-.vtk-viewer-container h3 {
-  margin: 0 0 10px 0;
-  font-weight: 600;
-  color: #333;
-}
-
-.vtk-viewer-container canvas {
-  display: block;
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 2.5rem;
 }

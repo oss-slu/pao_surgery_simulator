@@ -1,0 +1,52 @@
+.welcome-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 2rem 2.25rem;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.09);
+}
+
+.welcome-title {
+  font-size: 1.8rem;
+  margin: 0 0 0.75rem;
+}
+
+.welcome-title span {
+  color: #0d47a1;
+}
+
+.welcome-text {
+  margin: 0 0 1.5rem;
+  color: #4b5563;
+  max-width: 640px;
+}
+
+.welcome-actions {
+  margin-bottom: 1rem;
+}
+
+.primary-btn {
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  font-size: 0.98rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary-btn {
+  background: #e5e7eb;
+  color: #111827;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.welcome-hint {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
