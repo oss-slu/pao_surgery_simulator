@@ -1,10 +1,50 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from sqlalchemy import text
+from datetime import datetime
 from db import connect
 
 app = Flask(__name__)
 CORS(app)
+
+@app.route("/api/signup", methods=["POST"])
+def user_signup():
+    try:
+        data = request.get_json()
+        print("Received signup data:", data)
+        if not data:
+            return jsonify({"error": "Missing data"}), 400
+    
+        user_name = data.get("username")
+        if not isinstance(user_name, str) or not user_name.strip():
+            return jsonify({"error": "Invalid username"}), 400
+        
+        user_email = data.get("email")
+        if not isinstance(user_email, str) or "@" not in user_email:
+            return jsonify({"error": "Invalid email"}), 400
+        
+        user_birthdate = data.get("birthdate")
+        try:
+            user_birthdate = datetime.strptime(user_birthdate, "%Y-%m-%d").date()
+        except Exception:
+            return jsonify({"error": "Invalid birthdate format. Use YYYY-MM-DD"}), 400
+        
+        user_password = data.get("password")
+        if not isinstance(user_password, str) or len(user_password) < 6 or len(user_password) > 255:
+            return jsonify({"error": "Invalid password"}), 400
+
+        with connect() as conn:
+            user_account = conn.execute(
+                text("""INSERT INTO users
+                (user_name, user_email, user_birthdate, user_password) VALUES (:username, :email, :birthdate, :password)
+                RETURNING user_id;"""),
+                {"username": user_name, "email": user_email, "birthdate": user_birthdate, "password": user_password})
+            new_id = user_account.fetchone()[0]
+            conn.commit()
+            return jsonify({"message": "User Account", "id": new_id}), 201
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/patients", methods=["POST"])
 def patients_add():
@@ -228,6 +268,14 @@ def images_get():
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "Flask backend connected to PostgreSQL successfully!"})
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Resource not found"}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
