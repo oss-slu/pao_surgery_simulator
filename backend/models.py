@@ -4,7 +4,6 @@ from sqlalchemy import String
 from sqlalchemy import Integer
 from sqlalchemy import TIMESTAMP
 from sqlalchemy import func
-from sqlalchemy import Date
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
@@ -16,7 +15,7 @@ class User(Base):
     user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_name: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     user_email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
-    user_birthdate: Mapped[datetime] = mapped_column(Date, nullable=False)
+    user_organization: Mapped[str] = mapped_column(String(255), nullable=True)
     user_password: Mapped[str] = mapped_column(String(255), nullable=False)
     patients: Mapped[List["Patient"]] = relationship("Patient", back_populates="user", cascade="all, delete-orphan")
     images: Mapped[List["Image"]] = relationship("Image", back_populates="user", cascade="all, delete-orphan")

@@ -3,6 +3,7 @@ from flask_cors import CORS
 from sqlalchemy import text
 from datetime import datetime
 from db import connect
+from werkzeug.security import check_password_hash
 
 app = Flask(__name__)
 CORS(app)
@@ -15,36 +16,72 @@ def user_signup():
         if not data:
             return jsonify({"error": "Missing data"}), 400
     
-        user_name = data.get("username")
+        user_name = data.get("user_name")
         if not isinstance(user_name, str) or not user_name.strip():
             return jsonify({"error": "Invalid username"}), 400
         
-        user_email = data.get("email")
+        user_email = data.get("user_email")
         if not isinstance(user_email, str) or "@" not in user_email:
             return jsonify({"error": "Invalid email"}), 400
         
-        user_birthdate = data.get("birthdate")
-        try:
-            user_birthdate = datetime.strptime(user_birthdate, "%Y-%m-%d").date()
-        except Exception:
-            return jsonify({"error": "Invalid birthdate format. Use YYYY-MM-DD"}), 400
+        user_organization = data.get("user_organization") or ""
         
-        user_password = data.get("password")
+        user_password = data.get("user_password")
         if not isinstance(user_password, str) or len(user_password) < 6 or len(user_password) > 255:
             return jsonify({"error": "Invalid password"}), 400
 
         with connect() as conn:
+            existing_user = conn.execute(
+                text("SELECT user_id FROM users WHERE user_name = :username"), {"username": user_name}).fetchone()
+            if existing_user:
+                return jsonify({"error": "Username has been used"}), 400
+            
+            existing_email = conn.execute(
+                text("SELECT user_id FROM users WHERE user_email = :email"), {"email": user_email}).fetchone()
+            if existing_email:
+                return jsonify({"error": "Email has been used"}), 400
+
             user_account = conn.execute(
                 text("""INSERT INTO users
-                (user_name, user_email, user_birthdate, user_password) VALUES (:username, :email, :birthdate, :password)
+                (user_name, user_email, user_organization, user_password) VALUES (:username, :email, :organization, :password)
                 RETURNING user_id;"""),
-                {"username": user_name, "email": user_email, "birthdate": user_birthdate, "password": user_password})
+                {"username": user_name, "email": user_email, "organization": user_organization, "password": user_password})
             new_id = user_account.fetchone()[0]
             conn.commit()
             return jsonify({"message": "User Account", "id": new_id}), 201
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/login", methods=["POST"])
+def user_login():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing data"}), 400
+
+    user_name = data.get("user_name")
+    user_password = data.get("user_password")
+
+    if not user_name:
+        return jsonify({"error": "Missing Username"}), 400
+    
+    if not user_password:
+        return jsonify({"error": "Missing Password"}), 400
+
+    with connect() as conn:
+        user = conn.execute(
+            text("SELECT user_id, user_password FROM users WHERE user_name = :u"),
+            {"u": user_name}
+        ).fetchone()
+
+        if user is None:
+            return jsonify({"error": "User not exist"}), 401
+
+        stored_password = user[1]
+        if stored_password != user_password:
+            return jsonify({"error": "Wrong Password"}), 401
+
+        return jsonify({"message": "Login successful", "user_id": user[0]}), 200
 
 @app.route("/api/patients", methods=["POST"])
 def patients_add():

@@ -1,62 +1,85 @@
-import React, { useState, useRef } from "react";
-import LoginPage from "./LoginPage";
-import SignupPage from "./signup";
-import './App.css';
+import React, { useState } from "react";
+import "./App.css";
+import LoginPage from "./components/LoginPage";
+import SignUpPage from "./components/SignUpPage";
+import Sidebar from "./components/Sidebar";
+import WelcomeSection from "./components/WelcomeSection";
+import UploadSection from "./components/UploadSection";
+
+const API_BASE = "http://127.0.0.1:5000";
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [page, setPage] = useState("login"); // "login" | "signup"
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [fileName, setFileName] = useState("No file chosen");
-  const fileInputRef = useRef(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [showSignUp, setShowSignUp] = useState(false);
+  const [username, setUsername] = useState("");
+  const [showUpload, setShowUpload] = useState(false);
 
-  const handleLoginSuccess = (userData) => setUser(userData);
-  const handleSignupSuccess = (userData) => setUser(userData);
+  const handleLoginSuccess = (userName) => {
+    setUsername(userName);
+    setIsLoggedIn(true);
+    setShowSignUp(false);
+    setShowUpload(false);
+  };
+
   const handleLogout = () => {
-    setUser(null);
-    setSelectedImage(null);
-    setFileName("No file chosen");
-    setPage("login");
+    setIsLoggedIn(false);
+    setUsername("");
+    setShowUpload(false);
   };
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
-    if (file && file.type.startsWith("image/")) {
-      setSelectedImage(URL.createObjectURL(file));
-      setFileName(file.name);
-    } else {
-      setSelectedImage(null);
-      setFileName("No file chosen");
-      if (file) alert("Please select an image file!");
-    }
-  };
-  const handleButtonClick = () => fileInputRef.current.click();
 
-  if (!user) {
-    return page === "login" ? (
-      <LoginPage 
-        onLoginSuccess={handleLoginSuccess} 
-        onSwitchToSignup={() => setPage("signup")} 
-      />
-    ) : (
-      <SignupPage 
-        onSignupSuccess={handleSignupSuccess} 
-        onSwitchToLogin={() => setPage("login")} 
-      />
+  const handleShowSignUp = () => {
+    setShowSignUp(true);
+  };
+
+  const handleBackToLogin = () => {
+    setShowSignUp(false);
+  };
+
+  const handleUploadClick = () => {
+    setShowUpload(true);
+  };
+
+  const handleBackToHome = () => {
+    setShowUpload(false);
+  };
+
+  // Not logged in → show login or signup
+  if (!isLoggedIn) {
+    if (showSignUp) {
+      return (
+        <div className="auth-wrapper">
+          <SignUpPage onBackToLogin={handleBackToLogin} />
+        </div>
+      );
+    }
+
+    return (
+      <div className="auth-wrapper">
+        <LoginPage
+          apiBase={API_BASE}
+          onLoginSuccess={handleLoginSuccess}
+          onShowSignUp={handleShowSignUp}
+        />
+      </div>
     );
   }
 
+  // Logged in → dashboard shell
   return (
-    <div className="app-container">
-      <h2>Welcome to Simulation Surgery, {user.username}!</h2>
-
-      <input type="file" accept="image/*" onChange={handleFileChange} ref={fileInputRef} className="input-file-hidden" />
-      <button onClick={handleButtonClick} className="file-upload-button">Choose Image</button>
-
-      <div className="file-display">
-        <span>{fileName}</span>
-      </div>
-      {selectedImage && <img src={selectedImage} alt="Preview" />}
-      <button onClick={handleLogout}>Logout</button>
+    <div className="app-shell">
+      <Sidebar username={username} onLogout={handleLogout} />
+      <main className="main-content">
+        <div className="page-container">
+          {showUpload ? (
+            <UploadSection apiBase={API_BASE} onBack={handleBackToHome} />
+          ) : (
+            <WelcomeSection
+              username={username}
+              onUploadClick={handleUploadClick}
+            />
+          )}
+        </div>
+      </main>
     </div>
   );
 }
