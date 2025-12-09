@@ -3,31 +3,95 @@ import uuid
 
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from werkzeug.utils import secure_filename
-
-import numpy as np
-import pydicom
-import vtkmodules.all as vtk
-from vtkmodules.util import numpy_support
-from PIL import Image
+from sqlalchemy import text
+from datetime import datetime
+from db import connect
+from werkzeug.security import check_password_hash
 
 app = Flask(__name__)
 CORS(app)
 
+@app.route("/api/signup", methods=["POST"])
+def user_signup():
+    try:
+        data = request.get_json()
+        print("Received signup data:", data)
+        if not data:
+            return jsonify({"error": "Missing data"}), 400
+    
+        user_name = data.get("user_name")
+        if not isinstance(user_name, str) or not user_name.strip():
+            return jsonify({"error": "Invalid username"}), 400
+        
+        user_email = data.get("user_email")
+        if not isinstance(user_email, str) or "@" not in user_email:
+            return jsonify({"error": "Invalid email"}), 400
+        
+        user_organization = data.get("user_organization") or ""
+        
+        user_password = data.get("user_password")
+        if not isinstance(user_password, str) or len(user_password) < 6 or len(user_password) > 255:
+            return jsonify({"error": "Invalid password"}), 400
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "dicom_uploads")
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        with connect() as conn:
+            existing_user = conn.execute(
+                text("SELECT user_id FROM users WHERE user_name = :username"), {"username": user_name}).fetchone()
+            if existing_user:
+                return jsonify({"error": "Username has been used"}), 400
+            
+            existing_email = conn.execute(
+                text("SELECT user_id FROM users WHERE user_email = :email"), {"email": user_email}).fetchone()
+            if existing_email:
+                return jsonify({"error": "Email has been used"}), 400
 
-ALLOWED_EXTENSIONS = {".dcm"}
+            user_account = conn.execute(
+                text("""INSERT INTO users
+                (user_name, user_email, user_organization, user_password) VALUES (:username, :email, :organization, :password)
+                RETURNING user_id;"""),
+                {"username": user_name, "email": user_email, "organization": user_organization, "password": user_password})
+            new_id = user_account.fetchone()[0]
+            conn.commit()
+            return jsonify({"message": "User Account", "id": new_id}), 201
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
+@app.route("/api/login", methods=["POST"])
+def user_login():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing data"}), 400
 
-def allowed_file(filename: str) -> bool:
-    ext = os.path.splitext(filename)[1].lower()
-    return ext in ALLOWED_EXTENSIONS
+    user_name = data.get("user_name")
+    user_password = data.get("user_password")
 
+    if not user_name:
+        return jsonify({"error": "Missing Username"}), 400
+    
+    if not user_password:
+        return jsonify({"error": "Missing Password"}), 400
 
-def load_dicom_series_as_numpy(dicom_dir: str):
-    """Read a folder of DICOM slices into a 3D numpy volume and spacing."""
+    with connect() as conn:
+        user = conn.execute(
+            text("SELECT user_id, user_password FROM users WHERE user_name = :u"),
+            {"u": user_name}
+        ).fetchone()
+
+        if user is None:
+            return jsonify({"error": "User not exist"}), 401
+
+        stored_password = user[1]
+        if stored_password != user_password:
+            return jsonify({"error": "Wrong Password"}), 401
+
+        return jsonify({"message": "Login successful", "user_id": user[0]}), 200
+
+@app.route("/api/patients", methods=["POST"])
+def patients_add():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing data"}), 400
     
     files = sorted(
         f for f in os.listdir(dicom_dir) if f.lower().endswith(".dcm")
@@ -233,6 +297,14 @@ def login():
     else:
         return jsonify({"error": "Invalid username or password"}), 401
 
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Resource not found"}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)

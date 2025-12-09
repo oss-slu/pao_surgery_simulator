@@ -16,16 +16,21 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
       const res = await fetch(`${apiBase}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({
+          user_name: username,
+          user_password: password,
+        }),
       });
 
       const data = await res.json();
 
-      if (res.ok) {
-        onLoginSuccess(username);
-      } else {
+      if (!res.ok) {
         setError(data.error || "Invalid username or password");
+        return;
       }
+
+      onLoginSuccess(data.username);
+
     } catch (err) {
       setError("Network error: " + err.message);
     } finally {

@@ -1,4 +1,5 @@
- import React from "react";
+
+import React from "react";
 import "./Sidebar.css";
 
 function Sidebar({ username, onLogout }) {
