@@ -308,3 +308,4 @@ def internal_error(error):
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
+# Adding ping route on Mon Feb 23 10:50:28 AM CST 2026
