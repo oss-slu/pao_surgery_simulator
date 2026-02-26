@@ -301,7 +301,98 @@ def images_get():
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@app.route("/api/dicom_uploads", methods=["POST"])
+def dicom_add():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"message": "Missing data"}), 400
+        
+        user_id = data.get("user_id")
+        if user_id is None:
+            return jsonify({"message": "Missing User ID"}), 400
+        
+        with connect() as conn:
+            dicom_data = conn.execute(
+                text("""INSERT INTO dicom_uploads
+                (user_id) VALUES (:user_id)
+                RETURNING upload_id;"""),
+                {"user_id": data["user_id"]})
+            new_id = dicom_data.fetchone()[0]
+            conn.commit()
+            return jsonify({"message": "DICOM upload created", "id": new_id}), 201
+          
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+@app.route('/api/dicom_uploads/<int:uid>', methods=['PUT'])
+def dicom_update(uid):
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"message": "Missing data"}), 400
+        
+        user_id = data.get("user_id")
+        if user_id is None:
+            return jsonify({"message": "Missing User ID"}), 400
 
+        with connect() as conn:
+            dicom_data = conn.execute(
+                text("""UPDATE dicom_uploads 
+                    SET user_id = :user_id WHERE upload_id = :uid
+                    RETURNING upload_id;"""),
+                    {"user_id": data["user_id"],"uid": "uid"})
+            update_id = dicom_data.fetchone()[0]
+            conn.commit()
+            if update_id:
+                return jsonify({"message": "Update Dicom", "id": update_id}), 200
+            else:
+                return jsonify({"error": f"Dicom {uid} not found."}), 404
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/dicom_uploads", methods=["DELETE"])
+def dicom_delete():
+    try:
+        data = request.get_json()
+        uid = data.get("upload_id")
+        if not uid:
+            return jsonify({"error": "Not Dicom id"}), 400
+        if not isinstance(uid, int) or uid <= 0:
+            return jsonify({"error": "Invalid Dicom id"}), 400
+    
+        with connect() as conn:
+            result = conn.execute(
+                text("""DELETE FROM dicom_uploads WHERE upload_id = :uid RETURNING upload_id;"""),
+                {"uid": uid})
+            deleted = result.fetchone()
+            conn.commit()
+        
+        if deleted:
+            return jsonify({"message": f"Dicom {uid} deleted successfully."}), 200
+        else:
+            return jsonify({"error": f"Dicom {uid} not found"}), 404
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/dicom_uploads", methods=["GET"])
+def dicom_get():
+    try:
+        with connect() as conn:
+            dicom_list = conn.execute(text("SELECT upload_id, user_id FROM dicom_uploads;"))
+            dicom = []
+            for attribute in dicom_list:
+                dicom.append({
+                    "upload_id": attribute[0],
+                    "user_id": attribute[1]})
+        return jsonify(dicom), 200
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+        
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "Flask backend connected to PostgreSQL successfully!"})

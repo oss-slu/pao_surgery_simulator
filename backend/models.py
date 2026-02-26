@@ -19,6 +19,7 @@ class User(Base):
     user_password: Mapped[str] = mapped_column(String(255), nullable=False)
     patients: Mapped[List["Patient"]] = relationship("Patient", back_populates="user", cascade="all, delete-orphan")
     images: Mapped[List["Image"]] = relationship("Image", back_populates="user", cascade="all, delete-orphan")
+    dicom_uploads: Mapped[List["Dicom"]] = relationship("Dicom", back_populates="user", cascade="all, delete-orphan")
 
 
 class Patient(Base):
@@ -41,3 +42,10 @@ class Image(Base):
     upload_date: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     user: Mapped["User"] = relationship("User", back_populates="images")
     patient: Mapped["Patient"] = relationship("Patient", back_populates="images")
+
+class Dicom(Base):
+    __tablename__ = "dicom_uploads"
+    upload_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)
+    upload_date: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
+    user: Mapped["User"] = relationship("User", back_populates="dicom_uploads")
