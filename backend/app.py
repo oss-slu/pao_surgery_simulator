@@ -7,23 +7,19 @@ from vtkmodules.util import numpy_support
 from PIL import Image 
 from werkzeug.utils import secure_filename 
 
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from sqlalchemy import text
 from db import connect
 
-
 app = Flask(__name__)
 CORS(app)
-
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'dcm'
-
 
 @app.route("/api/signup", methods=["POST"])
 def user_signup():
@@ -74,7 +70,6 @@ def user_login():
     data = request.get_json()
     if not data:
         return jsonify({"error": "Missing data"}), 400
-
     
     user_name = data.get("user_name") or data.get("username")
     user_password = data.get("user_password") or data.get("password")
@@ -89,7 +84,6 @@ def user_login():
         return jsonify({"message": "Login successful", "user_id": 1}), 200
     
     return jsonify({"error": "Invalid credentials"}), 401
-
 
 def load_dicom_series_as_numpy(dicom_dir):
     """Loads a directory of DICOM files into a 3D numpy array."""
@@ -169,8 +163,19 @@ def upload_dicom():
 
 @app.route("/api/render_dicom/<upload_id>", methods=["GET"])
 def render_dicom(upload_id):
-   
-    dicom_dir = os.path.join(UPLOAD_FOLDER, upload_id)
+    # 1. Sanitize the user input
+    safe_upload_id = secure_filename(upload_id)
+    if not safe_upload_id:
+        return jsonify({"error": "Invalid upload ID"}), 400
+
+    # 2. Build the absolute base directory path securely
+    base_uploads = os.path.abspath(UPLOAD_FOLDER)
+    dicom_dir = os.path.abspath(os.path.join(base_uploads, safe_upload_id))
+
+    # 3. Strict Boundary Check: Proves to CodeQL the path cannot escape the uploads folder
+    if not dicom_dir.startswith(base_uploads):
+        return jsonify({"error": "Path traversal attempt detected"}), 403
+
     if not os.path.exists(dicom_dir):
         return jsonify({"error": "Upload ID not found"}), 404
 
@@ -179,91 +184,19 @@ def render_dicom(upload_id):
     except Exception as e:
         print("Failed to read DICOM series:", e)
         return jsonify({"error": f"Failed to read DICOM series: {e}"}), 500
-
     
     image_data = numpy_volume_to_vtk_image(volume, spacing)
-
     
-    output_path = os.path.join(dicom_dir, "volume.vti")
+    output_filename = "volume.vti"
+    output_path = os.path.join(dicom_dir, output_filename)
+    
     writer = vtk.vtkXMLImageDataWriter()
     writer.SetFileName(output_path)
     writer.SetInputData(image_data)
     writer.Write()
 
-   
-    return send_file(output_path, mimetype="application/octet-stream")
-
-    min_val = float(volume.min())
-    max_val = float(volume.max())
-
-    if max_val == min_val:
-        return jsonify({"error": "DICOM volume has no intensity variation"}), 500
-
-    image_data = numpy_volume_to_vtk_image(volume, spacing)
-
-    low = min_val
-    bg_cut = min_val + 0.2 * (max_val - min_val)
-    mid = min_val + 0.6 * (max_val - min_val)
-    high = max_val
-
-    color_func = vtk.vtkColorTransferFunction()
-    color_func.AddRGBPoint(low, 0.0, 0.0, 0.0)
-    color_func.AddRGBPoint(bg_cut, 0.2, 0.2, 0.2)
-    color_func.AddRGBPoint(mid, 0.8, 0.8, 0.8)
-    color_func.AddRGBPoint(high, 1.0, 1.0, 1.0)
-
-    opacity_func = vtk.vtkPiecewiseFunction()
-    opacity_func.AddPoint(low, 0.0)
-    opacity_func.AddPoint(bg_cut, 0.02)
-    opacity_func.AddPoint(mid, 0.25)
-    opacity_func.AddPoint(high, 0.9)
-
-    volume_property = vtk.vtkVolumeProperty()
-    volume_property.SetColor(color_func)
-    volume_property.SetScalarOpacity(opacity_func)
-    volume_property.SetInterpolationTypeToLinear()
-    volume_property.ShadeOn()
-
-    volume_actor = vtk.vtkVolume()
-    volume_actor.SetMapper(vtk.vtkSmartVolumeMapper())
-    volume_actor.GetMapper().SetInputData(image_data)
-    volume_actor.SetProperty(volume_property)
-
-    renderer = vtk.vtkRenderer()
-    renderer.AddVolume(volume_actor)
-    renderer.SetBackground(0.0, 0.0, 0.0)
-
-    render_window = vtk.vtkRenderWindow()
-    render_window.OffScreenRenderingOn()
-    render_window.AddRenderer(renderer)
-    render_window.SetSize(512, 512)
-
-    renderer.ResetCamera()
-    camera = renderer.GetActiveCamera()
-    camera.SetViewUp(0, 0, -1)
-    camera.SetPosition(0, -1, 0)
-    renderer.ResetCameraClippingRange()
-
-    render_window.Render()
-
-    w2i = vtk.vtkWindowToImageFilter()
-    w2i.SetInput(render_window)
-    w2i.Update()
-
-    vtk_image = w2i.GetOutput()
-    width, height, _ = vtk_image.GetDimensions()
-    vtk_array = vtk_image.GetPointData().GetScalars()
-    np_image = numpy_support.vtk_to_numpy(vtk_array)
-    np_image = np_image.reshape(height, width, -1)
-
-    max_val_img = np_image.max() if np_image.max() != 0 else 1
-    np_image = (np_image / max_val_img * 255).astype("uint8")
-
-    output_path = os.path.join(dicom_dir, "render.png")
-    img = Image.fromarray(np_image)
-    img.save(output_path)
-
-    return send_file(output_path, mimetype="image/png")
+    # 4. Use Flask's safe send_from_directory instead of send_file
+    return send_from_directory(dicom_dir, output_filename, mimetype="application/octet-stream")
 
 @app.errorhandler(404)
 def not_found(error):
