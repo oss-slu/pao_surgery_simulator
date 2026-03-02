@@ -1,10 +1,16 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-/node_modules/
 
-
-/build/
+build/
 dist/
 .cache/
+.parcel-cache/
+.next/
+public/.cache/
 
 
 .env
@@ -13,19 +19,8 @@ dist/
 .env.development.local
 .env.production.local
 .env.test.local
-secrets.* 
-*.key
+secrets.* *.key
 *.pem
-
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-/.parcel-cache/
-/.next/
-.cache/
-public/.cache
 
 
 venv/
@@ -36,46 +31,35 @@ env/
 __pycache__/
 *.py[cod]
 *$py.class
-
-
 *.egg-info/
-dist/
-build/
 pip-wheel-metadata/
-
-
 .coverage
 htmlcov/
 .pytest_cache/
-
-
+instance/
 *.db
 *.sqlite
-instance/
 
 
-.ipynb_checkpoints/
-
-
+uploads/
+data/
+datasets/
+models/
 *.dcm
 *.dicom
 *.nii
 *.nii.gz
-
-
-/data/
-/datasets/
-/uploads/
-/models/
+*.vti
 *.h5
 *.pt
 *.ckpt
 *.tar.gz
 
 
+.ipynb_checkpoints/
+
+
 .DS_Store
-
-
 Thumbs.db
 Desktop.ini
 ehthumbs.db
@@ -87,8 +71,6 @@ ehthumbs.db
 *.ntvs*
 *.njsproj
 *.sln
-
-
 *.swp
 *~.nib
 *.kate-swp
@@ -96,8 +78,6 @@ ehthumbs.db
 
 *.log
 logs/
-npm-debug.log*
-yarn-debug.log*
 
 
 docker-compose.override.yml
@@ -106,14 +86,9 @@ docker-compose.*.local
 
 
 .husky/_/
-
-
 .aws/
 .gcloud/
 azure/
-
-
 coverage/
 tmp/
 temp/
-any changes required in this gitignore file
