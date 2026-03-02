@@ -1,13 +1,14 @@
-import os
-from dotenv import load_dotenv
+from configparser import ConfigParser
 
-load_dotenv()
+def config(filename='database.ini', section='postgresql'):
+    parser = ConfigParser()
+    parser.read(filename)
+    db_params = {}
+    if parser.has_section(section):
+        params = parser.items(section)
+        for param in params:
+            db_params[param[0]] = param[1]
+    else:
+        raise Exception(f'Section {section} not found in the {filename} file')
 
-def config():
-    return {
-        'host': os.getenv('host'),
-        'database': os.getenv('database'),
-        'user': os.getenv('user'),
-        'password': os.getenv('password'),
-        'port': os.getenv('port')
-    }
+    return db_params
