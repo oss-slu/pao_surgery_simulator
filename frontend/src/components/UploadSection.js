@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import "./UploadSection.css";
+import VTKViewer from "./VTKViewer";
 
 function UploadSection({ apiBase, onBack }) {
   const fileInputRef = useRef(null);
@@ -135,8 +136,9 @@ function UploadSection({ apiBase, onBack }) {
 
       {renderUrl && (
         <div className="rendered-image">
-          <h3>3D Rendered Snapshot</h3>
-          <img src={renderUrl} alt="3D Render" width="512" height="512" />
+          <h3>Interactive 3D Render</h3>
+          
+          <VTKViewer modelUrl={renderUrl} /> 
         </div>
       )}
     </div>
