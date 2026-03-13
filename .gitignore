@@ -43,6 +43,7 @@ instance/
 
 uploads/
 data/
+dicom_uploads/
 datasets/
 models/
 *.dcm
