@@ -1,5 +1,12 @@
 import os
 import uuid
+import pydicom
+from PIL import Image
+from werkzeug.utils import secure_filename
+
+import numpy as np
+import vtk
+from vtk.util import numpy_support
 
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
@@ -11,6 +18,92 @@ from werkzeug.security import check_password_hash
 app = Flask(__name__)
 CORS(app)
 
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def allowed_file(filename):
+    """Check if the uploaded file has a .dcm extension."""
+    return "." in filename and filename.rsplit(".", 1)[1].lower() == "dcm"
+def load_dicom_series_as_numpy(dicom_dir):
+    """Load DICOM series from directory and return as numpy array with spaces"""
+
+    files = sorted([
+        f for f in os.listdir(dicom_dir) if f.endswith(".dcm")
+    ])
+    if not files:
+        raise RuntimeError("No .dcm files found in directory")
+    
+    slices = []
+    spacing = (1.0, 1.0, 1.0)
+
+    for idx, fname in enumerate(files):
+        path = os.path.join(dicom_dir, fname)
+        ds = pydicom.dcmread(path)
+
+        if not hasattr(ds, "pixel_array"):
+            raise RuntimeError(f"DICOM file has no pixel data: {fname}")
+        
+        arr = ds.pixel_array.astype(np.float32)
+
+        slope = float(getattr(ds, "RescaleSlope", 1.0))
+        intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+        arr = arr * slope + intercept
+
+        slices.append(arr)
+
+        if idx == 0:
+            pixel_spacing = getattr(ds, "PixelSpacing", [1.0, 1.0])
+            sx = float(pixel_spacing[1])
+            sy = float(pixel_spacing[0])
+            sz = float(getattr(ds, "SliceThickness", 1.0))
+            spacing = (sx, sy, sz)
+
+    volume = np.stack(slices, axis=0)
+    return volume, spacing
+
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import LocalOutlierFactor
+
+estimator_lof = make_pipeline(
+    StandardScaler(),
+    LocalOutlierFactor(
+        n_neighbors=20,
+        algorithm='auto',
+        leaf_size=30,
+        metric='minkowski',
+        p=2,
+        contamination='auto',
+        novelty=True,
+    )
+)
+estimator_lof.fit(X=X)
+
+@app.route("/api/ping", methods=["GET"])
+def ping():
+    """Simple endpoint to verify backend and endpoint running"""
+    return jsonify({"message": "pong", "status": "success"}), 200
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint to verify database connectivity"""
+    try:
+        with connect() as conn:
+            result = conn.execute(text("SELECT 1"))
+            if result.fetchone()[0] == 1:
+                return jsonify({"message": "Surgery Simulator API is Running - Database connection successful", 
+                                "status": "healthy",
+                                "database": "connected",
+                                "timestamp": datetime.utcnow().isoformat()
+                             }), 200
+    except Exception as e:
+        return jsonify({
+            "message": "Surgery Simulator API is Running",
+            "status": "unhealthy",
+            "database": f"connection failed: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }), 200
+    
 @app.route("/api/signup", methods=["POST"])
 def user_signup():
     try:
@@ -92,6 +185,10 @@ def patients_add():
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing data"}), 400
+        
+        return jsonify({"message": "Patient added successfully"}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     
     files = sorted(
         f for f in os.listdir(dicom_dir) if f.lower().endswith(".dcm")
