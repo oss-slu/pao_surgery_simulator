@@ -3,4 +3,4 @@ Flask-Cors==6.0.0
 vtk==9.3.0
 numpy==1.26.0
 Pillow==12.1.1
-pydicom==2.4.4
+pydicom==2.4.5
