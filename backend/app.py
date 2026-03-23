@@ -287,7 +287,7 @@ def render_dicom(upload_id):
     perform volume rendering off-screen, and return a PNG snapshot.
     """
     upload_root = os.path.abspath(UPLOAD_FOLDER)
-    dicom_dir = os.path.normpath(os.path.join(upload_root, upload_id))
+    dicom_dir = os.path.abspath(os.path.normpath(os.path.join(upload_root, upload_id)))
     # Ensure the resolved path is still within the upload root to prevent path traversal
     if os.path.commonpath([upload_root, dicom_dir]) != upload_root:
         return jsonify({"error": "Invalid upload ID"}), 400
@@ -380,10 +380,15 @@ def render_dicom(upload_id):
     np_image = (np_image / max_val_img * 255).astype("uint8")
 
     output_path = os.path.join(dicom_dir, "render.png")
+    final_output_path = os.path.abspath(output_path)
+    # Ensure the final output path is still within the upload root to prevent path traversal
+    upload_root = os.path.abspath(UPLOAD_FOLDER)
+    if os.path.commonpath([upload_root, final_output_path]) != upload_root:
+        return jsonify({"error": "Invalid render path"}), 400
     img = Image.fromarray(np_image)
-    img.save(output_path)
+    img.save(final_output_path)
 
-    return send_file(output_path, mimetype="image/png")
+    return send_file(final_output_path, mimetype="image/png")
 
 
 @app.route("/api/login", methods=["POST"])
