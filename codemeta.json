@@ -1,0 +1,58 @@
+{
+  "name": "pao_surgery_simulator",
+  "@context": "https://w3id.org/codemeta/3.0",
+  "applicationCategory": "Application server",
+  "author": [
+    {
+      "affiliation": {
+        "name": "Saint Louis University",
+        "type": "Organization"
+      },
+      "email": "dvlsriram@gmail.com",
+      "familyName": "Duvvuri Venkata Lalita",
+      "id": "_:author_1",
+      "givenName": "Sriram",
+      "type": "Person"
+    },
+    {
+      "email": "duongjustin287@gmail.com",
+      "id": "_:author_2",
+      "givenName": "justinduong5",
+      "type": "Person"
+    },
+    {
+      "id": "_:author_3",
+      "givenName": "Zhihuiwu646",
+      "type": "Person"
+    },
+    {
+      "id": "_:author_4",
+      "givenName": "rawana7912",
+      "type": "Person"
+    },
+    {
+      "roleName": "Tech Lead",
+      "startDate": "2025-08-20",
+      "schema:author": "_:author_1",
+      "type": "Role"
+    }
+  ],
+  "codeRepository": "https://github.com/oss-slu/pao_surgery_simulator",
+  "dateCreated": "2025-08-11",
+  "description": "Surgery Simulator is a platform designed to address the hurdles faced in the current orthopedic simulation tools. It is a platform for both clinical and education practice. It enables precise preoperative and detailed post operative analysis to improve surgical outcomes\n",
+  "developmentStatus": "active",
+  "issueTracker": "https://github.com/oss-slu/pao_surgery_simulator/issues",
+  "keywords": [
+    "Surgery Simulation"
+  ],
+  "license": "https://spdx.org/licenses/MIT-Modern-Variant",
+  "programmingLanguage": [
+    "JavaScript",
+    "Python",
+    "CSS",
+    "HTML",
+    "Dockerfile",
+    "TypeScript"
+  ],
+  "type": "SoftwareSourceCode"
+}
