@@ -286,7 +286,11 @@ def render_dicom(upload_id):
     Read the uploaded DICOM series with pydicom + numpy,
     perform volume rendering off-screen, and return a PNG snapshot.
     """
-    dicom_dir = os.path.join(UPLOAD_FOLDER, upload_id)
+    upload_root = os.path.abspath(UPLOAD_FOLDER)
+    dicom_dir = os.path.normpath(os.path.join(upload_root, upload_id))
+    # Ensure the resolved path is still within the upload root to prevent path traversal
+    if os.path.commonpath([upload_root, dicom_dir]) != upload_root:
+        return jsonify({"error": "Invalid upload ID"}), 400
     if not os.path.exists(dicom_dir):
         return jsonify({"error": "Upload ID not found"}), 404
 
