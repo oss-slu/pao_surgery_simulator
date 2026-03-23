@@ -19,7 +19,8 @@ class User(Base):
     user_password: Mapped[str] = mapped_column(String(255), nullable=False)
     patients: Mapped[List["Patient"]] = relationship("Patient", back_populates="user", cascade="all, delete-orphan")
     images: Mapped[List["Image"]] = relationship("Image", back_populates="user", cascade="all, delete-orphan")
-
+    dicom_uploads: Mapped[List["Dicom"]] = relationship("Dicom", back_populates="user", cascade="all, delete-orphan")
+    patient_scans: Mapped[List["Patient_Scan"]] = relationship("Patient_Scan", back_populates="user", cascade="all, delete-orphan")
 
 class Patient(Base):
     __tablename__ = "patients"
@@ -30,7 +31,6 @@ class Patient(Base):
     date: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     user: Mapped["User"] = relationship("User", back_populates="patients")
     images: Mapped[List["Image"]] = relationship("Image", back_populates="patient", cascade="all, delete-orphan")
-    dicom_uploads: Mapped[List["Dicom"]] = relationship("Dicom", back_populates="patient", cascade="all, delete-orphan")
 
 class Image(Base):
     __tablename__ = "images"
