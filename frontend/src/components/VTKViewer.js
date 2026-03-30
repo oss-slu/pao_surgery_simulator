@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import '@kitware/vtk.js/Rendering/Profiles/Volume';
 import vtkGenericRenderWindow from '@kitware/vtk.js/Rendering/Misc/GenericRenderWindow';
 import vtkVolume from '@kitware/vtk.js/Rendering/Core/Volume';
@@ -6,10 +6,12 @@ import vtkVolumeMapper from '@kitware/vtk.js/Rendering/Core/VolumeMapper';
 import vtkXMLImageDataReader from '@kitware/vtk.js/IO/XML/XMLImageDataReader';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import vtkPiecewiseFunction from '@kitware/vtk.js/Common/DataModel/PiecewiseFunction';
+import { ClipLoader } from 'react-spinners';
 
 function VTKViewer({ modelUrl }) {
   const vtkContainerRef = useRef(null);
   const context = useRef(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (!context.current) {
@@ -50,6 +52,7 @@ function VTKViewer({ modelUrl }) {
     
     if (modelUrl) {
       const { mapper, renderer, renderWindow, actor } = context.current;
+      setIsLoading(true);
       
       
       fetch(modelUrl)
@@ -68,9 +71,11 @@ function VTKViewer({ modelUrl }) {
           renderer.addVolume(actor);
           renderer.resetCamera();
           renderWindow.render();
+          setIsLoading(false);
         })
         .catch((error) => {
           console.error("Error loading VTI file:", error);
+          setIsLoading(false);
         });
     }
 
@@ -86,10 +91,11 @@ function VTKViewer({ modelUrl }) {
   return (
     <div style={{ width: '100%', height: '512px', border: '1px solid #444', position: 'relative' }}>
       <div ref={vtkContainerRef} style={{ width: '100%', height: '100%' }} />
-      
-      {modelUrl && (
-        <div style={{ position: 'absolute', top: 10, left: 10, color: 'white', pointerEvents: 'none' }}>
-          Loading 3D Volume...
+
+      {isLoading && (
+        <div style={{position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", zIndex: 1000}}>
+          <div style={{width: "60px", height: "60px", border: "6px solid #444", borderTop: "6px solid #4cafef", borderRadius: "50%", animation: "spin 1s linear infinite"}} />
+          <styler>{'@keyframes spin {from { transform: rotate(0deg); } to { transform: rotate(360deg); }}'}</styler>
         </div>
       )}
     </div>
