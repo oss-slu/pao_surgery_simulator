@@ -6,6 +6,7 @@ import vtkVolumeMapper from '@kitware/vtk.js/Rendering/Core/VolumeMapper';
 import vtkXMLImageDataReader from '@kitware/vtk.js/IO/XML/XMLImageDataReader';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import vtkPiecewiseFunction from '@kitware/vtk.js/Common/DataModel/PiecewiseFunction';
+import { ClipLoader } from 'react-spinners';
 
 function VTKViewer({ modelUrl }) {
   const vtkContainerRef = useRef(null);
@@ -92,15 +93,9 @@ function VTKViewer({ modelUrl }) {
       <div ref={vtkContainerRef} style={{ width: '100%', height: '100%' }} />
 
       {isLoading && (
-        <div style={{position: "absolute", inset: 0, display: "flex", justifyContent: "center", alignItems: "center"}}>
+        <div style={{position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", zIndex: 1000}}>
           <div style={{width: "60px", height: "60px", border: "6px solid #444", borderTop: "6px solid #4cafef", borderRadius: "50%", animation: "spin 1s linear infinite"}} />
           <styler>{'@keyframes spin {from { transform: rotate(0deg); } to { transform: rotate(360deg); }}'}</styler>
-        </div>
-      )}
-      
-      {modelUrl && (
-        <div style={{ position: 'absolute', top: 10, left: 10, color: 'white', pointerEvents: 'none' }}>
-          Loading 3D Volume...
         </div>
       )}
     </div>
