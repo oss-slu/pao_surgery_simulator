@@ -22,6 +22,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem("user_id"); // ← clear user_id on logout
     setIsLoggedIn(false);
     setUsername("");
     setShowUpload(false);
@@ -48,11 +49,14 @@ function App() {
     if (showSignUp) {
       return (
         <div className="auth-wrapper">
-          <SignUpPage onBackToLogin={handleBackToLogin} />
+          <SignUpPage
+            apiBase={API_BASE}               // ← pass apiBase
+            onSignupSuccess={handleLoginSuccess} // ← pass onSignupSuccess
+            onBackToLogin={handleBackToLogin}
+          />
         </div>
       );
     }
-
     return (
       <div className="auth-wrapper">
         <LoginPage
