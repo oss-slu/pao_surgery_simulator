@@ -1,90 +1,28 @@
-import React, { useState } from "react";
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import "./App.css";
-import LoginPage from "./components/LoginPage";
-import SignUpPage from "./components/SignUpPage";
-import Sidebar from "./components/Sidebar";
-import WelcomeSection from "./components/WelcomeSection";
-import UploadSection from "./components/UploadSection";
 
-const API_BASE = "http://127.0.0.1:5000";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Viewer from "./pages/Viewer";
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [showSignUp, setShowSignUp] = useState(false);
-  const [username, setUsername] = useState("");
-  const [showUpload, setShowUpload] = useState(false);
-
-  const handleLoginSuccess = (userName) => {
-    setUsername(userName);
-    setIsLoggedIn(true);
-    setShowSignUp(false);
-    setShowUpload(false);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem("user_id"); // ← clear user_id on logout
-    setIsLoggedIn(false);
-    setUsername("");
-    setShowUpload(false);
-  };
-
-  const handleShowSignUp = () => {
-    setShowSignUp(true);
-  };
-
-  const handleBackToLogin = () => {
-    setShowSignUp(false);
-  };
-
-  const handleUploadClick = () => {
-    setShowUpload(true);
-  };
-
-  const handleBackToHome = () => {
-    setShowUpload(false);
-  };
-
-  // Not logged in → show login or signup
-  if (!isLoggedIn) {
-    if (showSignUp) {
-      return (
-        <div className="auth-wrapper">
-          <SignUpPage
-            apiBase={API_BASE}               // ← pass apiBase
-            onSignupSuccess={handleLoginSuccess} // ← pass onSignupSuccess
-            onBackToLogin={handleBackToLogin}
-          />
-        </div>
-      );
-    }
-    return (
-      <div className="auth-wrapper">
-        <LoginPage
-          apiBase={API_BASE}
-          onLoginSuccess={handleLoginSuccess}
-          onShowSignUp={handleShowSignUp}
-        />
-      </div>
-    );
-  }
-
-  // Logged in → dashboard shell
   return (
-    <div className="app-shell">
-      <Sidebar username={username} onLogout={handleLogout} />
-      <main className="main-content">
-        <div className="page-container">
-          {showUpload ? (
-            <UploadSection apiBase={API_BASE} onBack={handleBackToHome} />
-          ) : (
-            <WelcomeSection
-              username={username}
-              onUploadClick={handleUploadClick}
-            />
-          )}
-        </div>
-      </main>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        {/* Default: redirect root to /login */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
+
+        <Route path="/login" element={<Login />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+
+        {/* :uploadId is read by Viewer via useParams and passed to VTKViewer */}
+        <Route path="/viewer/:uploadId" element={<Viewer />} />
+
+        {/* Catch-all → back to login */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
