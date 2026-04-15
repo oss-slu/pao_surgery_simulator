@@ -4,7 +4,7 @@
   "private": true,
   "dependencies": {
     "@kitware/vtk.js": "^34.16.3",
-    "axios": "^1.13.5",
+    "axios": "^1.15.0",
     "gl-matrix": "^3.4.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
