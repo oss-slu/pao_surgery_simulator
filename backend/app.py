@@ -11,6 +11,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from sqlalchemy import text
 from db import connect
+from models import User, Dicom
 
 app = Flask(__name__)
 CORS(app)
@@ -42,25 +43,19 @@ def user_signup():
         if not isinstance(user_password, str) or len(user_password) < 6 or len(user_password) > 255:
             return jsonify({"error": "Invalid password"}), 400
 
-        with connect() as conn:
-            existing_user = conn.execute(
-                text("SELECT user_id FROM users WHERE user_name = :username"), {"username": user_name}).fetchone()
+        with connect() as db:
+            existing_user = db.query(User).filter_by(user_name = user_name).first()
             if existing_user:
                 return jsonify({"error": "Username has been used"}), 400
             
-            existing_email = conn.execute(
-                text("SELECT user_id FROM users WHERE user_email = :email"), {"email": user_email}).fetchone()
+            existing_email = db.query(User).filter_by(user_email=user_email).first()
             if existing_email:
                 return jsonify({"error": "Email has been used"}), 400
 
-            user_account = conn.execute(
-                text("""INSERT INTO users
-                (user_name, user_email, user_organization, user_password) VALUES (:username, :email, :organization, :password)
-                RETURNING user_id;"""),
-                {"username": user_name, "email": user_email, "organization": user_organization, "password": user_password})
-            new_id = user_account.fetchone()[0]
-            conn.commit()
-            return jsonify({"message": "User Account", "id": new_id}), 201
+            new_user = User( user_name=user_name, user_email=user_email, user_organization=user_organization, user_password=user_password)
+            db.add(new_user)
+            db.flush()
+            return jsonify({"message": "User Account", "id": new_user.user_id}), 201
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -144,6 +139,10 @@ def upload_dicom():
     files = request.files.getlist("files")
     if not files:
         return jsonify({"error": "No files uploaded"}), 400
+    
+    user_id = request.form.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Missing user id"}), 400
 
     upload_id = str(uuid.uuid4())
     upload_path = os.path.join(UPLOAD_FOLDER, upload_id)
@@ -158,8 +157,15 @@ def upload_dicom():
 
     if not saved_any:
         return jsonify({"error": "No valid .dcm files uploaded"}), 400
-
-    return jsonify({"message": "Files uploaded", "upload_id": upload_id}), 200
+    
+    try:
+        with connect() as db:
+            new_upload = Dicom(upload_id = upload_id, user_id = int(user_id))
+            db.add(new_upload)
+            db.flush()
+        return jsonify({"message": "Files uploaded", "upload_id": upload_id}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/render_dicom/<upload_id>", methods=["GET"])
 def render_dicom(upload_id):
