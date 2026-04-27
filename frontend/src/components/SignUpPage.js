@@ -1,21 +1,20 @@
 import React, { useState } from "react";
 import "./LoginPage.css";
 
-function SignUpPage({ onSignupSuccess, onBackToLogin }) {
+function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
     const [fullName, setFullName] = useState("");
     const [email, setEmail] = useState("");
     const [organization, setOrganization] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState(null);
-    const [loading, setLoading] = useState(false); 
+    const [loading, setLoading] = useState(false);
 
     async function handleSubmit(e) {
         e.preventDefault();
         setLoading(true);
         setError(null);
-
         try {
-            const res = await fetch("/api/signup", {
+            const res = await fetch(`${apiBase}/api/signup`, { // ← use apiBase prop
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -25,7 +24,6 @@ function SignUpPage({ onSignupSuccess, onBackToLogin }) {
                     user_password: password,
                 }),
             });
-
             let data;
             try {
                 data = await res.json();
@@ -33,18 +31,14 @@ function SignUpPage({ onSignupSuccess, onBackToLogin }) {
                 const text = await res.text();
                 throw new Error(`Server returned status ${res.status}: ${text}`);
             }
-
             if (!res.ok) {
                 throw new Error(data.error || "Signup failed");
             }
-
+            localStorage.setItem("user_id", data.user_id); // ← store user_id
             if (onSignupSuccess) {
                 onSignupSuccess({ fullName, email, organization, ...data });
             }
-
-            alert("Sign up successful! Now log in with your credentials.");
-            if (onBackToLogin) onBackToLogin();
-
+            if (onBackToLogin) onBackToLogin(); // ← removed alert(), go straight back to login
         } catch (err) {
             setError(err.message);
         } finally {
@@ -66,7 +60,6 @@ function SignUpPage({ onSignupSuccess, onBackToLogin }) {
                     © {new Date().getFullYear()} Simulation Surgery Lab
                 </p>
             </div>
-
             <div className="right-panel">
                 <div className="form-container">
                     <div className="tabs">
@@ -75,9 +68,7 @@ function SignUpPage({ onSignupSuccess, onBackToLogin }) {
                         </button>
                         <button className="tab active">Sign Up</button>
                     </div>
-
                     <h2 style={{ marginBottom: "1.5rem" }}>Create an account</h2>
-
                     <form onSubmit={handleSubmit}>
                         <div className="form-group">
                             <label>Full Name</label>
@@ -89,7 +80,6 @@ function SignUpPage({ onSignupSuccess, onBackToLogin }) {
                                 placeholder="Your name"
                             />
                         </div>
-
                         <div className="form-group">
                             <label>Email</label>
                             <input
@@ -100,7 +90,6 @@ function SignUpPage({ onSignupSuccess, onBackToLogin }) {
                                 placeholder="you@example.com"
                             />
                         </div>
-
                         <div className="form-group">
                             <label>Organization</label>
                             <input
@@ -110,7 +99,6 @@ function SignUpPage({ onSignupSuccess, onBackToLogin }) {
                                 placeholder="Hospital / University (optional)"
                             />
                         </div>
-
                         <div className="form-group">
                             <label>Password</label>
                             <input
@@ -121,16 +109,14 @@ function SignUpPage({ onSignupSuccess, onBackToLogin }) {
                                 placeholder="Create a password"
                             />
                         </div>
-                        
                         {error && (
                             <p style={{ color: "red", marginTop: "1rem", fontWeight: "bold" }}>
                                 {error}
                             </p>
                         )}
-                        <button className="submit-btn" type="submit">
-                            Sign Up
+                        <button className="submit-btn" type="submit" disabled={loading}>
+                            {loading ? "Signing up..." : "Sign Up"}
                         </button>
-
                         <button
                             type="button"
                             className="secondary-link"
