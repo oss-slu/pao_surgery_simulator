@@ -5,10 +5,13 @@ function WelcomeSection({ username, onUploadClick }) {
   return (
     <div className="welcome-card">
       <h1 className="welcome-title">
-        Welcome, <span>{username}</span>
+        Simulation Surgery
       </h1>
+      <h2 className="welcome-subtitle">
+        Welcome, <span className="username-highlight">{username}</span>
+      </h2>
       <p className="welcome-text">
-        This dashboard helps you upload DICOM CT series, generate 3D renderings,
+        This dashboard helps you upload DICOM CT series, generate 3D renderings, 
         and explore pelvic anatomy for periacetabular osteotomy planning.
       </p>
 
