@@ -116,4 +116,9 @@ azure/
 coverage/
 tmp/
 temp/
-any changes required in this gitignore file
+##frontend/node_modules/
+node_modules/
+frontend/node_modules/
+#backend/venv/
+#backend/__pycache__/
+frontend/node_modules/
