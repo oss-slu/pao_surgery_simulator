@@ -355,7 +355,26 @@ def download_dicom(upload_id):
     except Exception as e:
         print("Failed to create ZIP archive:", e)
         return jsonify({"error": f"Failed to create ZIP archive: {e}"}), 500
+
+# for list of active upload sessions
+@app.route("/api/sessions", methods=["GET"])
+def list_sessions():
+    try:
+        base_uploads = os.path.abspath(UPLOAD_FOLDER) 
+        if not os.path.exists(base_uploads): 
+            return jsonify({"sessions": []}), 200
+        
+        sessions = [
+            name for name in os.listdir(base_uploads)
+            if os.path.isdir(os.path.join(base_uploads, name))
+        ]
+        
+        return jsonify({"sessions": sessions}), 200
     
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({"error": "Resource not found"}), 404
