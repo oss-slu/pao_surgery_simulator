@@ -17,7 +17,7 @@ function Dashboard() {
     const navigate = useNavigate();
     const [showUpload, setShowUpload] = useState(false);
     const [username, setUsername] = useState("");
-
+    /* 
     useEffect(() => {
         const stored = localStorage.getItem("username");
         if (!stored) {
@@ -27,9 +27,17 @@ function Dashboard() {
             setUsername(stored);
         }
     }, [navigate]);
+*/
+
+    useEffect(() => {
+        const stored = localStorage.getItem("username");
+        if (stored) setUsername(stored);
+    }, []);
+
 
     const handleLogout = () => {
         localStorage.removeItem("username");
+        localStorage.removeItem("user_id");
         navigate("/login", { replace: true });
     };
 
