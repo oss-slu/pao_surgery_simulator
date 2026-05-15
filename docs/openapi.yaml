@@ -1,0 +1,243 @@
+openapi: 3.0.0
+info:
+  title: Surgery Simulator API - DICOM Processing
+  description: API for uploading DICOM medical images and preparing them for 3D surgical simulation
+  version: 1.0.0
+  contact:
+    name: Rawan Alhachami
+    email: rawan.alhachami@slu.edu
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5000
+    description: Local development server
+
+tags:
+  - name: DICOM Processing
+    description: Upload, analyze, and render DICOM medical images
+
+
+paths:
+  /api/render_dicom/{upload_id}/metadata:
+    get:
+      summary: Get DICOM physical dimensions and metadata
+      description: |
+        Extracts physical dimensions (rows, columns, pixel spacing, slice thickness) 
+        and medical metadata from uploaded DICOM files WITHOUT loading the entire volume.
+        This allows the frontend to validate and prepare for 3D rendering in <100ms.
+      tags:
+        - DICOM Processing
+      parameters:
+        - name: upload_id
+          in: path
+          required: true
+          description: Unique identifier returned from the `/api/upload_dicom` endpoint
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Successfully extracted DICOM metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [success]
+                    example: "success"
+                  data:
+                    type: object
+                    properties:
+                      upload_id:
+                        type: string
+                        example: "550e8400-e29b-41d4-a716-446655440000"
+                      physical_dimensions:
+                        type: object
+                        properties:
+                          rows:
+                            type: integer
+                            description: Image height in pixels
+                            example: 512
+                          columns:
+                            type: integer
+                            description: Image width in pixels
+                            example: 512
+                          pixel_spacing_mm:
+                            type: array
+                            description: Distance between pixels in mm [x, y]
+                            items:
+                              type: number
+                            example: [0.5, 0.5]
+                          slice_thickness_mm:
+                            type: number
+                            description: Thickness of each slice in mm
+                            example: 1.0
+                          number_of_slices:
+                            type: integer
+                            description: Total DICOM files in series
+                            example: 150
+                          physical_height_mm:
+                            type: number
+                            description: Total height in mm (rows × pixel_spacing[1])
+                            example: 256.0
+                          physical_width_mm:
+                            type: number
+                            description: Total width in mm (columns × pixel_spacing[0])
+                            example: 256.0
+                          physical_depth_mm:
+                            type: number
+                            description: Total depth in mm (slices × slice_thickness)
+                            example: 150.0
+                      patient_info:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                            example: "Test^Patient"
+                          id:
+                            type: string
+                            example: "PAT12345"
+                          sex:
+                            type: string
+                            enum: [M, F, O]
+                            example: "F"
+                      study_info:
+                        type: object
+                        properties:
+                          date:
+                            type: string
+                            pattern: "^[0-9]{8}$"
+                            description: YYYYMMDD format
+                            example: "20240315"
+                          description:
+                            type: string
+                            example: "CT Abdomen"
+                      series_info:
+                        type: object
+                        properties:
+                          modality:
+                            type: string
+                            enum: [CT, MR, PET, XA]
+                            example: "CT"
+                          total_files:
+                            type: integer
+                            example: 150
+              example:
+                status: "success"
+                data:
+                  upload_id: "550e8400-e29b-41d4-a716-446655440000"
+                  physical_dimensions:
+                    rows: 512
+                    columns: 512
+                    pixel_spacing_mm: [0.488, 0.488]
+                    slice_thickness_mm: 1.25
+                    number_of_slices: 150
+                    physical_height_mm: 256.0
+                    physical_width_mm: 256.0
+                    physical_depth_mm: 187.5
+                  patient_info:
+                    name: "SMITH^JOHN"
+                    id: "CT001"
+                    sex: "M"
+                  study_info:
+                    date: "20240315"
+                    description: "Pelvis for surgical planning"
+                  series_info:
+                    modality: "CT"
+                    total_files: 150
+
+        '400':
+          description: Invalid upload_id format
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid upload ID"
+
+        '403':
+          description: Security violation - path traversal attempt detected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Path traversal attempt detected"
+
+        '404':
+          description: Upload ID not found or no DICOM files in directory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Upload ID not found"
+
+        '500':
+          description: Server error while processing DICOM file
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to extract metadata: Invalid DICOM format"
+
+  /api/upload_dicom:
+    post:
+      summary: Upload DICOM files
+      description: Upload one or more .dcm files for 3D processing
+      tags:
+        - DICOM Processing
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: One or more .dcm files
+      responses:
+        '200':
+          description: Files uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Files uploaded"
+                  upload_id:
+                    type: string
+                    format: uuid
+                    example: "550e8400-e29b-41d4-a716-446655440000"
+        '400':
+          description: No files provided or invalid file type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "No valid .dcm files uploaded"
+
+

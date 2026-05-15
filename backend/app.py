@@ -80,7 +80,7 @@ estimator_lof = make_pipeline(
         novelty=True,
     )
 )
-estimator_lof.fit(X=X)
+# estimator_lof.fit(X=X)
 
 @app.route("/api/ping", methods=["GET"])
 def ping():
