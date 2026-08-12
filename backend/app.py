@@ -372,7 +372,8 @@ def list_sessions():
         return jsonify({"sessions": sessions}), 200
     
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        app.logger.exception("Failed to list sessions")
+        return jsonify({"error": "Failed to list sessions"}), 500
 
 
 @app.errorhandler(404)
