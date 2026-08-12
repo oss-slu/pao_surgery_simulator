@@ -1,18 +1,38 @@
-## Description
-## Related Issue
-Closes ### Type of Change
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Security update (e.g., Dependabot fix, CodeQL patch)
-- [ ] Chore (documentation, refactoring, etc.)
+# Pull Request Template
 
-## How Has This Been Tested?
-1. 
-2. 
-3. 
+**Addresses #issue_number**
 
-## Tech Lead Checklist
+### What was changed?
+
+_Describe what part of the application was changed (e.g., login page, database, etc.). Mention specific components that were added, removed, or modified._
+
+
+
+### What changes are different from the original issue's described solution?
+
+_Describe what changes you made that are different from the issue's describe solution. Explain why these changes are different from the proposal._
+
+
+
+### Why was it changed?
+
+_Explain the problem or issue that prompted this change. Detail why this change effectively resolves the issue or improves the application._
+
+
+
+### How was it changed?
+
+_Detail the key modifications in the codebase, highlighting significant files, functions, or lines of code._
+
+
+
+### Screenshots that show the changes (if applicable):
+_Include screenshots or visual representations of the changes, especially for user interface updates._
+- **Before:**
+
+- **After:**
+
+## Checklist
 - [ ] My code follows the style guidelines of this project.
 - [ ] I have performed a self-review of my own code.
 - [ ] I have commented my code, particularly in hard-to-understand areas (like VTK math or complex SQL).
