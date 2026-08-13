@@ -1,5 +1,6 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 import "./App.css";
 
 import Login from "./pages/Login";
@@ -9,6 +10,7 @@ import Viewer from "./pages/Viewer";
 function App() {
   return (
     <BrowserRouter>
+      <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
       <Routes>
         {/* Default: redirect root to /login */}
         <Route path="/" element={<Navigate to="/login" replace />} />
