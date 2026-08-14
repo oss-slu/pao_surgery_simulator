@@ -1,5 +1,7 @@
 import React, { useRef, useState } from "react";
+import toast from "react-hot-toast";
 import "./UploadSection.css";
+import VTKViewer from "./VTKViewer";
 
 function UploadSection({ apiBase, onBack }) {
   const fileInputRef = useRef(null);
@@ -26,7 +28,7 @@ function UploadSection({ apiBase, onBack }) {
 
   const handleUpload = async () => {
     if (!files.length) {
-      alert("Please select one or more DICOM files first.");
+      toast.error("Please select one or more DICOM files first.");
       return;
     }
 
@@ -35,6 +37,8 @@ function UploadSection({ apiBase, onBack }) {
 
     const formData = new FormData();
     files.forEach((f) => formData.append("files", f));
+    const userId = localStorage.getItem("user_id");
+    if (userId) formData.append("user_id", userId);
 
     try {
       const res = await fetch(`${apiBase}/api/upload_dicom`, {
@@ -48,10 +52,11 @@ function UploadSection({ apiBase, onBack }) {
       }
 
       setUploadId(data.upload_id);
-      alert("Files uploaded successfully.");
+      toast.success("Files uploaded successfully");
     } catch (err) {
       console.error(err);
       setError(err.message);
+      toast.error(err.message || "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -59,7 +64,7 @@ function UploadSection({ apiBase, onBack }) {
 
   const handleRender = () => {
     if (!uploadId) {
-      alert("Upload a DICOM series before rendering.");
+      toast.error("Upload a DICOM series before rendering.");
       return;
     }
 
@@ -72,6 +77,7 @@ function UploadSection({ apiBase, onBack }) {
     } catch (err) {
       console.error(err);
       setError("Failed to start rendering.");
+      toast.error("Failed to start rendering.");
     } finally {
       setRendering(false);
     }
@@ -135,8 +141,9 @@ function UploadSection({ apiBase, onBack }) {
 
       {renderUrl && (
         <div className="rendered-image">
-          <h3>3D Rendered Snapshot</h3>
-          <img src={renderUrl} alt="3D Render" width="512" height="512" />
+          <h3>Interactive 3D Render</h3>
+          
+          <VTKViewer modelUrl={renderUrl} /> 
         </div>
       )}
     </div>

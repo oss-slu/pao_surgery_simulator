@@ -1,0 +1,22 @@
+title: pao_surgery_simulator
+authors:
+  - given-names: Sriram
+    family-names: Duvvuri Venkata Lalita
+    email: dvlsriram@gmail.com
+    affiliation: Saint Louis University
+  - given-names: justinduong5
+    email: duongjustin287@gmail.com
+  - given-names: Zhihuiwu646
+  - given-names: rawana7912
+cff-version: 1.2.0
+message: If you use this software, please cite it using the metadata from this file.
+type: software
+abstract: >
+  Surgery Simulator is a platform designed to address the hurdles faced in the
+  current orthopedic simulation tools. It is a platform for both clinical and
+  education practice. It enables precise preoperative and detailed post
+  operative analysis to improve surgical outcomes
+keywords:
+  - Surgery Simulation
+license: MIT-Modern-Variant
+repository-code: https://github.com/oss-slu/pao_surgery_simulator

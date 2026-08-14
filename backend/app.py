@@ -1,21 +1,40 @@
 import os
 import uuid
+import pydicom 
+import numpy as np 
+import vtk 
+from vtkmodules.util import numpy_support 
+from PIL import Image 
+from werkzeug.utils import secure_filename 
 
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from sqlalchemy import text
-from datetime import datetime
-from db import connect
-from werkzeug.security import check_password_hash
+from db import connect, initialize_db
+from models import User, Dicom
 
 app = Flask(__name__)
 CORS(app)
+
+# Initialize database on startup
+print("Initializing Database...")
+print("="*50)
+db_initialized = initialize_db()
+if not db_initialized:
+    print("\n WARNING: Database initialization failed. Application may not work correctly.\n")
+else:
+    print("\n Database ready\n")
+
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'dcm'
 
 @app.route("/api/signup", methods=["POST"])
 def user_signup():
     try:
         data = request.get_json()
-        print("Received signup data:", data)
         if not data:
             return jsonify({"error": "Missing data"}), 400
     
@@ -33,25 +52,19 @@ def user_signup():
         if not isinstance(user_password, str) or len(user_password) < 6 or len(user_password) > 255:
             return jsonify({"error": "Invalid password"}), 400
 
-        with connect() as conn:
-            existing_user = conn.execute(
-                text("SELECT user_id FROM users WHERE user_name = :username"), {"username": user_name}).fetchone()
+        with connect() as db:
+            existing_user = db.query(User).filter_by(user_name = user_name).first()
             if existing_user:
                 return jsonify({"error": "Username has been used"}), 400
             
-            existing_email = conn.execute(
-                text("SELECT user_id FROM users WHERE user_email = :email"), {"email": user_email}).fetchone()
+            existing_email = db.query(User).filter_by(user_email=user_email).first()
             if existing_email:
                 return jsonify({"error": "Email has been used"}), 400
 
-            user_account = conn.execute(
-                text("""INSERT INTO users
-                (user_name, user_email, user_organization, user_password) VALUES (:username, :email, :organization, :password)
-                RETURNING user_id;"""),
-                {"username": user_name, "email": user_email, "organization": user_organization, "password": user_password})
-            new_id = user_account.fetchone()[0]
-            conn.commit()
-            return jsonify({"message": "User Account", "id": new_id}), 201
+            new_user = User( user_name=user_name, user_email=user_email, user_organization=user_organization, user_password=user_password)
+            db.add(new_user)
+            db.flush()
+            return jsonify({"message": "User Account", "id": new_user.user_id}), 201
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -61,9 +74,9 @@ def user_login():
     data = request.get_json()
     if not data:
         return jsonify({"error": "Missing data"}), 400
-
-    user_name = data.get("user_name")
-    user_password = data.get("user_password")
+    
+    user_name = data.get("user_name") or data.get("username")
+    user_password = data.get("user_password") or data.get("password")
 
     if not user_name:
         return jsonify({"error": "Missing Username"}), 400
@@ -71,31 +84,14 @@ def user_login():
     if not user_password:
         return jsonify({"error": "Missing Password"}), 400
 
-    with connect() as conn:
-        user = conn.execute(
-            text("SELECT user_id, user_password FROM users WHERE user_name = :u"),
-            {"u": user_name}
-        ).fetchone()
-
-        if user is None:
-            return jsonify({"error": "User not exist"}), 401
-
-        stored_password = user[1]
-        if stored_password != user_password:
-            return jsonify({"error": "Wrong Password"}), 401
-
-        return jsonify({"message": "Login successful", "user_id": user[0]}), 200
-
-@app.route("/api/patients", methods=["POST"])
-def patients_add():
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "Missing data"}), 400
+    if user_name == "admin" and user_password == "admin":
+        return jsonify({"message": "Login successful", "user_id": 1}), 200
     
-    files = sorted(
-        f for f in os.listdir(dicom_dir) if f.lower().endswith(".dcm")
-    )
+    return jsonify({"error": "Invalid credentials"}), 401
+
+def load_dicom_series_as_numpy(dicom_dir):
+    """Loads a directory of DICOM files into a 3D numpy array."""
+    files = sorted(f for f in os.listdir(dicom_dir) if f.lower().endswith(".dcm"))
     if not files:
         raise RuntimeError("No .dcm files found in directory")
 
@@ -110,14 +106,12 @@ def patients_add():
             raise RuntimeError(f"DICOM file has no pixel data: {fname}")
 
         arr = ds.pixel_array.astype(np.float32)
-
         
         slope = float(getattr(ds, "RescaleSlope", 1.0))
         intercept = float(getattr(ds, "RescaleIntercept", 0.0))
         arr = arr * slope + intercept
 
         volume_slices.append(arr)
-
         
         if idx == 0:
             pixel_spacing = getattr(ds, "PixelSpacing", [1.0, 1.0])
@@ -125,11 +119,9 @@ def patients_add():
             sy = float(pixel_spacing[0])
             sz = float(getattr(ds, "SliceThickness", 1.0))
             spacing = (sx, sy, sz)
-
     
     volume = np.stack(volume_slices, axis=0)  
     return volume, spacing
-
 
 def numpy_volume_to_vtk_image(volume: np.ndarray, spacing):
     """Convert a 3D numpy volume (Z, Y, X) to vtkImageData."""
@@ -148,19 +140,18 @@ def numpy_volume_to_vtk_image(volume: np.ndarray, spacing):
 
     return image_data
 
-
 @app.route("/api/upload_dicom", methods=["POST"])
 def upload_dicom():
-    """
-    Upload one or more DICOM files. They are stored in a unique folder
-    identified by upload_id, which is returned to the frontend.
-    """
     if "files" not in request.files:
         return jsonify({"error": "No files part"}), 400
 
     files = request.files.getlist("files")
     if not files:
         return jsonify({"error": "No files uploaded"}), 400
+    
+    user_id = request.form.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Missing user id"}), 400
 
     upload_id = str(uuid.uuid4())
     upload_path = os.path.join(UPLOAD_FOLDER, upload_id)
@@ -175,17 +166,31 @@ def upload_dicom():
 
     if not saved_any:
         return jsonify({"error": "No valid .dcm files uploaded"}), 400
-
-    return jsonify({"message": "Files uploaded", "upload_id": upload_id}), 200
-
+    
+    try:
+        with connect() as db:
+            new_upload = Dicom(upload_id = upload_id, user_id = int(user_id))
+            db.add(new_upload)
+            db.flush()
+        return jsonify({"message": "Files uploaded", "upload_id": upload_id}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/render_dicom/<upload_id>", methods=["GET"])
 def render_dicom(upload_id):
-    """
-    Read the uploaded DICOM series with pydicom + numpy,
-    perform volume rendering off-screen, and return a PNG snapshot.
-    """
-    dicom_dir = os.path.join(UPLOAD_FOLDER, upload_id)
+    # 1. Sanitize the user input
+    safe_upload_id = secure_filename(upload_id)
+    if not safe_upload_id:
+        return jsonify({"error": "Invalid upload ID"}), 400
+
+    # 2. Build the absolute base directory path securely
+    base_uploads = os.path.abspath(UPLOAD_FOLDER)
+    dicom_dir = os.path.abspath(os.path.join(base_uploads, safe_upload_id))
+
+    # 3. Strict Boundary Check: Proves to CodeQL the path cannot escape the uploads folder
+    if not dicom_dir.startswith(base_uploads):
+        return jsonify({"error": "Path traversal attempt detected"}), 403
+
     if not os.path.exists(dicom_dir):
         return jsonify({"error": "Upload ID not found"}), 404
 
@@ -194,110 +199,172 @@ def render_dicom(upload_id):
     except Exception as e:
         print("Failed to read DICOM series:", e)
         return jsonify({"error": f"Failed to read DICOM series: {e}"}), 500
-
     
-    min_val = float(volume.min())
-    max_val = float(volume.max())
-    print("DICOM intensity range (numpy):", min_val, max_val)
-
-    if max_val == min_val:
-        return jsonify({"error": "DICOM volume has no intensity variation"}), 500
-
-   
     image_data = numpy_volume_to_vtk_image(volume, spacing)
-
     
-    low = min_val
-    bg_cut = min_val + 0.2 * (max_val - min_val)
-    mid = min_val + 0.6 * (max_val - min_val)
-    high = max_val
-
-    color_func = vtk.vtkColorTransferFunction()
+    output_filename = "volume.vti"
+    output_path = os.path.join(dicom_dir, output_filename)
     
-    color_func.AddRGBPoint(low, 0.0, 0.0, 0.0)
-    color_func.AddRGBPoint(bg_cut, 0.2, 0.2, 0.2)
+    writer = vtk.vtkXMLImageDataWriter()
+    writer.SetFileName(output_path)
+    writer.SetInputData(image_data)
+    writer.Write()
+
+    # 4. Use Flask's safe send_from_directory instead of send_file
+    return send_from_directory(dicom_dir, output_filename, mimetype="application/octet-stream")
+
+@app.route("/api/render_dicom/<upload_id>/metadata", methods=["GET"])
+def render_dicom_metadata(upload_id):
+    """Extract physical dimensions and metadata from the DICOM series."""
+
+    safe_upload_id = secure_filename(upload_id)
+    if not safe_upload_id:
+        return jsonify({"error": "Invalid upload ID"}), 400
     
-    color_func.AddRGBPoint(mid, 0.8, 0.8, 0.8)
-    color_func.AddRGBPoint(high, 1.0, 1.0, 1.0)
+    base_uploads = os.path.abspath(UPLOAD_FOLDER)
+    dicom_dir = os.path.abspath(os.path.join(base_uploads, safe_upload_id))
 
-    opacity_func = vtk.vtkPiecewiseFunction()
+    if not dicom_dir.startswith(base_uploads):
+        return jsonify({"error": "Path traversal attempt detected"}), 403
     
-    opacity_func.AddPoint(low, 0.0)
-    opacity_func.AddPoint(bg_cut, 0.02)
+    if not os.path.exists(dicom_dir):
+        return jsonify({"error": "Upload ID not found"}), 404
     
-    opacity_func.AddPoint(mid, 0.25)
+    dicom_files = [f for f in os.listdir(dicom_dir) if f.lower().endswith(".dcm")]
+
+    if not dicom_files:
+        return jsonify({"error": "No DICOM files found"}), 404
     
-    opacity_func.AddPoint(high, 0.9)
+    try:
+        first_dicom = os.path.join(dicom_dir, dicom_files[0])
+        ds = pydicom.dcmread(first_dicom)
 
-    volume_property = vtk.vtkVolumeProperty()
-    volume_property.SetColor(color_func)
-    volume_property.SetScalarOpacity(opacity_func)
-    volume_property.SetInterpolationTypeToLinear()
-    volume_property.ShadeOn()
+        rows = int(ds.Rows) if hasattr(ds, "Rows") else None
+        cols = int(ds.Columns) if hasattr(ds, "Columns") else None
 
+        pixel_spacing = getattr(ds, "PixelSpacing", [None, None])
+        slice_thickness = getattr(ds, "SliceThickness", None)
+
+        spacing_between_slices = None
+        if hasattr(ds, "SpacingBetweenSlices"):
+            spacing_between_slices = float(ds.SpacingBetweenSlices)
+
+         # Patient Info 
+        patient_name = str(ds.PatientName) if hasattr(ds, "PatientName") else None
+        patient_id = str(ds.PatientID) if hasattr(ds, "PatientID") else None
+        patient_birth_date = str(ds.PatientBirthDate) if hasattr(ds, "PatientBirthDate") else None
+        patient_sex = str(ds.PatientSex) if hasattr(ds, "PatientSex") else None
+
+        # Study Info
+        study_date = str(ds.StudyDate) if hasattr(ds, "StudyDate") else None
+        study_time = str(ds.StudyTime) if hasattr(ds, "StudyTime") else None
+        study_description = str(ds.StudyDescription) if hasattr(ds, "StudyDescription") else None
+
+        #Series Info
+        series_description = str(ds.SeriesDescription) if hasattr(ds, "SeriesDescription") else None
+        series_number = str(ds.SeriesNumber) if hasattr(ds, "SeriesNumber") else None
+        modality = str(ds.Modality) if hasattr(ds, "Modality") else None
+        window_center = str(ds.WindowCenter) if hasattr(ds, "WindowCenter") else None
+        window_width = str(ds.WindowWidth) if hasattr(ds, "WindowWidth") else None
+        rescale_slope = str(ds.RescaleSlope) if hasattr(ds, "RescaleSlope") else None
+        rescale_intercept = str(ds.RescaleIntercept) if hasattr(ds, "RescaleIntercept") else None
+
+        # Volume Dimensions
+        volume_depth = len(dicom_files)
+        if slice_thickness:
+            physical_depth = volume_depth * slice_thickness
+        else:
+            physical_depth = None
+
+
+        # First Slice Intensity Range
+        pixel_array = ds.pixel_array
+        intensity_min = float(np.min(pixel_array))
+        intensity_max = float(np.max(pixel_array))
+        
+        metadata = {
+            "upload_id": upload_id,
+            "physical_dimensions": {
+                "rows": rows,
+                "columns": columns,
+                "pixel_spacing_mm": pixel_spacing,
+                "slice_thickness_mm": slice_thickness,
+                "spacing_between_slices_mm": spacing_between_slices,
+                "number_of_slices": volume_depth,
+                "physical_height_mm": rows * pixel_spacing[1] if pixel_spacing and rows and len(pixel_spacing) > 1 and pixel_spacing[1] else None,
+                "physical_width_mm": columns * pixel_spacing[0] if pixel_spacing and columns and len(pixel_spacing) > 0 and pixel_spacing[0] else None,
+                "physical_depth_mm": physical_depth
+            },
+            "patient_info": {
+                "name": patient_name,
+                "id": patient_id,
+                "birth_date": patient_birth_date,
+                "sex": patient_sex
+            },
+            "study_info": {
+                "date": study_date,
+                "time": study_time,
+                "description": study_description
+            },
+            "series_info": {
+                "description": series_description,
+                "number": series_number,
+                "modality": modality,
+                "total_files": len(dicom_files)
+            },
+            "image_processing": {
+                "window_center": window_center,
+                "window_width": window_width,
+                "rescale_slope": rescale_slope,
+                "rescale_intercept": rescale_intercept,
+                "intensity_range": {
+                    "min": intensity_min,
+                    "max": intensity_max
+                }
+            }
+        }
+        
+        return jsonify({"status": "success", "data": metadata}), 200
+        
+    except Exception as e:
+        print("Error extracting DICOM metadata:", e)
+        return jsonify({"error": f"Failed to extract metadata: {str(e)}"}), 500
+
+
+
+@app.route("/api/download_dicom/<upload_id>", methods=["GET"])
+def download_dicom(upload_id):
+    safe_upload_id = secure_filename(upload_id)
+    if not safe_upload_id:
+        return jsonify({"error": "Invalid upload ID"}), 400
+
+    base_uploads = os.path.abspath(UPLOAD_FOLDER)
+    dicom_dir = os.path.abspath(os.path.join(base_uploads, safe_upload_id))
+
+    if not dicom_dir.startswith(base_uploads):
+        return jsonify({"error": "Path traversal attempt detected"}), 403
+
+    if not os.path.exists(dicom_dir):
+        return jsonify({"error": "Upload ID not found"}), 404
+
+    try:
+        zip_filename = f"{safe_upload_id}.zip"
+        zip_path = os.path.join(base_uploads, zip_filename)
+
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for root, _, files in os.walk(dicom_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, dicom_dir)
+                    zipf.write(file_path, arcname)
+
+        return send_file(zip_path, mimetype="application/zip", as_attachment=True, download_name=zip_filename)
     
-    volume_actor = vtk.vtkVolume()
-    volume_actor.SetMapper(vtk.vtkSmartVolumeMapper())
-    volume_actor.GetMapper().SetInputData(image_data)
-    volume_actor.SetProperty(volume_property)
-
-    renderer = vtk.vtkRenderer()
-    renderer.AddVolume(volume_actor)
-    renderer.SetBackground(0.0, 0.0, 0.0)
-
-    render_window = vtk.vtkRenderWindow()
-    render_window.OffScreenRenderingOn()
-    render_window.AddRenderer(renderer)
-    render_window.SetSize(512, 512)
-
-    renderer.ResetCamera()
-    camera = renderer.GetActiveCamera()
-    camera.SetViewUp(0, 0, -1)
-    camera.SetPosition(0, -1, 0)
-    renderer.ResetCameraClippingRange()
-
-    render_window.Render()
-
+    except Exception as e:
+        print("Failed to create ZIP archive:", e)
+        return jsonify({"error": f"Failed to create ZIP archive: {e}"}), 500
     
-    w2i = vtk.vtkWindowToImageFilter()
-    w2i.SetInput(render_window)
-    w2i.Update()
-
-    vtk_image = w2i.GetOutput()
-    width, height, _ = vtk_image.GetDimensions()
-    vtk_array = vtk_image.GetPointData().GetScalars()
-    np_image = numpy_support.vtk_to_numpy(vtk_array)
-
-    
-    np_image = np_image.reshape(height, width, -1)
-
-    max_val_img = np_image.max() if np_image.max() != 0 else 1
-    np_image = (np_image / max_val_img * 255).astype("uint8")
-
-    output_path = os.path.join(dicom_dir, "render.png")
-    img = Image.fromarray(np_image)
-    img.save(output_path)
-
-    return send_file(output_path, mimetype="image/png")
-
-
-@app.route("/api/login", methods=["POST"])
-def login():
-    """
-    Very simple mock login.
-    username: admin
-    password: admin
-    """
-    data = request.get_json() or {}
-    username = data.get("username")
-    password = data.get("password")
-
-    if username == "admin" and password == "admin":
-        return jsonify({"message": "Login successful"}), 200
-    else:
-        return jsonify({"error": "Invalid username or password"}), 401
-
-
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({"error": "Resource not found"}), 404
@@ -308,3 +375,4 @@ def internal_error(error):
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
+
