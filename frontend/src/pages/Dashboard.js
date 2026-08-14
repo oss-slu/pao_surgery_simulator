@@ -18,19 +18,16 @@ function Dashboard() {
     const navigate = useNavigate();
     const [showUpload, setShowUpload] = useState(false);
     const [username, setUsername] = useState("");
-
+    
     useEffect(() => {
         const stored = localStorage.getItem("username");
-        if (!stored) {
-            // Not logged in – redirect to login
-            navigate("/login", { replace: true });
-        } else {
-            setUsername(stored);
-        }
-    }, [navigate]);
+        if (stored) setUsername(stored);
+    }, []);
+
 
     const handleLogout = () => {
         localStorage.removeItem("username");
+        localStorage.removeItem("user_id");
         toast.success("Logged out successfully");
         navigate("/login", { replace: true });
     };
