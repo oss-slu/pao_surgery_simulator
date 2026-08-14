@@ -18,12 +18,7 @@ function Viewer() {
     const navigate = useNavigate();
     const [modelUrl, setModelUrl] = useState("");
 
-    useEffect(() => {
-        /*if (!localStorage.getItem("username")) {
-            navigate("/login", { replace: true });
-            return;
-        }*/
-       
+    useEffect(() => {       
         // Construct the VTI model URL served by the Flask backend
         setModelUrl(`${API_BASE}/api/uploads/${uploadId}/model`);
     }, [uploadId, navigate]);

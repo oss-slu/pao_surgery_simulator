@@ -18,18 +18,7 @@ function Dashboard() {
     const navigate = useNavigate();
     const [showUpload, setShowUpload] = useState(false);
     const [username, setUsername] = useState("");
-    /* 
-    useEffect(() => {
-        const stored = localStorage.getItem("username");
-        if (!stored) {
-            // Not logged in – redirect to login
-            navigate("/login", { replace: true });
-        } else {
-            setUsername(stored);
-        }
-    }, [navigate]);
-*/
-
+    
     useEffect(() => {
         const stored = localStorage.getItem("username");
         if (stored) setUsername(stored);
