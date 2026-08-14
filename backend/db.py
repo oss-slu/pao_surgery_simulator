@@ -27,7 +27,8 @@ def connect():
     finally:
         db.close()
 
-if __name__ == '__main__':
+def initialize_db():
+    """Initialize database connection and create tables."""
     try:
         with engine.connect() as conn:
             result = conn.execute(text("SELECT version();"))
@@ -35,5 +36,10 @@ if __name__ == '__main__':
                 print("Connected to:", row)
         Base.metadata.create_all(bind=engine)
         print("Tables created successfully.")
+        return True
     except Exception as e:
         print(e)
+        return False
+
+if __name__ == '__main__':
+    initialize_db()
