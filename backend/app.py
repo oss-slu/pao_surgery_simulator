@@ -10,11 +10,20 @@ from werkzeug.utils import secure_filename
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from sqlalchemy import text
-from db import connect
+from db import connect, initialize_db
 from models import User, Dicom
 
 app = Flask(__name__)
 CORS(app)
+
+# Initialize database on startup
+print("Initializing Database...")
+print("="*50)
+db_initialized = initialize_db()
+if not db_initialized:
+    print("\n WARNING: Database initialization failed. Application may not work correctly.\n")
+else:
+    print("\n Database ready\n")
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
