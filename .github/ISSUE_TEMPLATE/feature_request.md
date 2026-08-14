@@ -7,17 +7,17 @@ assignees: ''
 
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is:
+## Is your feature request related to a problem? Please describe.
+**A clear and concise description of what the problem is:**
 
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen:
+## Describe the solution you'd like.
+**A clear and concise description of what you want to happen:**
 
-
-**Additional context**
-Add any other context or screenshots about the feature request here:
-
-**Acceptance Criteria**
-Add requirements that must be met for issue to be marked complete:
+### Acceptance Criteria
+**Add requirements that must be met for issue to be marked complete:**
 - [ ] Requirement1
+
+
+## Additional context
+**Add any other context or screenshots about the feature request here:**
