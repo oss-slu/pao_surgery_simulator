@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import toast from "react-hot-toast";
 import "./LoginPage.css";
 
 function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
@@ -38,9 +39,12 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
             if (onSignupSuccess) {
                 onSignupSuccess({ fullName, email, organization, ...data });
             }
+            toast.success("Account created successfully");
             if (onBackToLogin) onBackToLogin(); // ← removed alert(), go straight back to login
         } catch (err) {
-            setError(err.message);
+            const message = err.message || "Signup failed";
+            setError(message);
+            toast.error(message);
         } finally {
             setLoading(false);
         }

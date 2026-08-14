@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 import Sidebar from "../components/Sidebar";
 import WelcomeSection from "../components/WelcomeSection";
 import UploadSection from "../components/UploadSection";
 
-const API_BASE = "http://127.0.0.1:5000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
 
 /**
  * Dashboard page (route: /dashboard)
@@ -30,6 +31,7 @@ function Dashboard() {
 
     const handleLogout = () => {
         localStorage.removeItem("username");
+        toast.success("Logged out successfully");
         navigate("/login", { replace: true });
     };
 

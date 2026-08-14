@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import toast from "react-hot-toast";
 import "./LoginPage.css";
 
 function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
@@ -22,13 +23,17 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Invalid username or password");
+        const message = data.error || "Invalid username or password";
+        setError(message);
+        toast.error(message);
         return;
       }
       localStorage.setItem("user_id", data.user_id); // ← store user_id
       onLoginSuccess(data.username);
     } catch (err) {
-      setError("Network error: " + err.message);
+      const message = "Network error: " + err.message;
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }

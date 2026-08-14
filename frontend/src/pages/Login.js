@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import LoginPage from "../components/LoginPage";
 import SignUpPage from "../components/SignUpPage";
 
-const API_BASE = "http://127.0.0.1:5000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
 
 /**
  * Login page (route: /login)
@@ -24,7 +24,10 @@ function Login() {
     if (showSignUp) {
         return (
             <div className="auth-wrapper">
-                <SignUpPage onBackToLogin={() => setShowSignUp(false)} />
+                <SignUpPage
+                    apiBase={API_BASE}
+                    onBackToLogin={() => setShowSignUp(false)}
+                />
             </div>
         );
     }
