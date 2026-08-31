@@ -32,6 +32,14 @@ Before we start working on the project, we must ensure whether our system has th
 
 - Install the necessary Python dependencies by running <code>pip install -r requirements.txt</code>
 
+### Database Setup
+
+- Navigate to the backend directory using <code>cd backend</code>
+
+- Read the <code>database.ini</code> file for database setup details. You should change these, or you can leave them as they are for testing purposes.
+
+- Create a PostgreSQL database via your preferred method. You can use applications such as pgAdmin or directly create it using PSQL commands in a command line. Make sure your parameters match <code>database.ini</code>.
+
 ### Frontend Setup
 
 - Open a new terminal and navigate to the frontend directory using <code>cd frontend</code>
