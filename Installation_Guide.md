@@ -47,6 +47,7 @@ Before we start working on the project, we must ensure whether our system has th
 - Install the required dependencies using <code>npm install</code>
 
 ### Running the Application 
+- Start your PostgreSQL database using your preferred method.
 
 - Start the backend server by navigating to the backend folder (ensure your virtual environment is activated) and running <code>python app.py</code>  
 
