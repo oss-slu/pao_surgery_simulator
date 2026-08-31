@@ -19,9 +19,10 @@ PAO Simulation Surgery is a web based application designed to establish an inter
 
 ### Getting Started
 - Clone the Repository from GitHub.
-- Install the requirements for React using `npm install` and for Python using `pip install -r requirements.txt` in the terminal.
-- Install SQLite (later we will setup PostgreSQL).
-- After installing necessary requirements run the application by using `python app.py` in the `backend` folder and `npm start` in the `frontend` folder.
+- Install the requirements for React using `npm install` in the frontend, and in the backend for Python using `pip install -r requirements.txt` in the terminal.
+- Install SQLite.
+- Start your PostgreSQL database prior to starting the application.
+- After installing necessary requirements, run the application by using `python app.py` in the `backend` folder and `npm start` in the `frontend` folder.
 - See the installation guide for more details.
 
 ### Contribution
