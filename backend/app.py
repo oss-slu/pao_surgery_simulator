@@ -83,11 +83,19 @@ def user_login():
     
     if not user_password:
         return jsonify({"error": "Missing Password"}), 400
-
-    if user_name == "admin" and user_password == "admin":
-        return jsonify({"message": "Login successful", "user_id": 1}), 200
+    
+    with connect() as db:
+        user = db.query(User).filter_by(user_name=user_name).first()
+        if not user:
+            return jsonify({"error": "Invalid username"}), 401
+        else: 
+            if user.user_password != user_password:
+                return jsonify({"error": "Invalid password"}), 401
+            else:
+                return jsonify({"message": "Login successful", "user_id": user.user_id}), 200
     
     return jsonify({"error": "Invalid credentials"}), 401
+
 
 def load_dicom_series_as_numpy(dicom_dir):
     """Loads a directory of DICOM files into a 3D numpy array."""
