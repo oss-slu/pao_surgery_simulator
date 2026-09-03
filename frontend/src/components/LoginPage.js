@@ -3,8 +3,8 @@ import toast from "react-hot-toast";
 import "./LoginPage.css";
 
 function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin");
+const [username, setUsername] = useState("");
+const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,7 +29,7 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
         return;
       }
       localStorage.setItem("user_id", data.user_id); // ← store user_id
-      onLoginSuccess(data.username);
+      onLoginSuccess(username);
     } catch (err) {
       const message = "Network error: " + err.message;
       setError(message);

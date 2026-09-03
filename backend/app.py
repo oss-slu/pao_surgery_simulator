@@ -6,6 +6,7 @@ import vtk
 from vtkmodules.util import numpy_support 
 from PIL import Image 
 from werkzeug.utils import secure_filename 
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
@@ -51,7 +52,7 @@ def user_signup():
         user_password = data.get("user_password")
         if not isinstance(user_password, str) or len(user_password) < 6 or len(user_password) > 255:
             return jsonify({"error": "Invalid password"}), 400
-
+        user_password = generate_password_hash(user_password)
         with connect() as db:
             existing_user = db.query(User).filter_by(user_name = user_name).first()
             if existing_user:
@@ -89,7 +90,7 @@ def user_login():
         if not user:
             return jsonify({"error": "Invalid username"}), 401
         else: 
-            if user.user_password != user_password:
+            if not check_password_hash(user.user_password, user_password):
                 return jsonify({"error": "Invalid password"}), 401
             else:
                 return jsonify({"message": "Login successful", "user_id": user.user_id}), 200

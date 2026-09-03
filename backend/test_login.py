@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from app import app
+from werkzeug.security import generate_password_hash
 
 @pytest.fixture
 def client():
@@ -14,7 +15,7 @@ def test_login_success(mock_connect, client):
     mock_user = MagicMock()
     mock_user.user_id = 1
     mock_user.user_name = "testuser"
-    mock_user.user_password = "password123"
+    mock_user.user_password = generate_password_hash("password123")
     # 2. Fake database session
     mock_db = MagicMock()
     mock_db.query.return_value.filter_by.return_value.first.return_value = mock_user
@@ -34,7 +35,7 @@ def test_login_wrong_password(mock_connect, client):
     mock_user = MagicMock()
     mock_user.user_id = 1
     mock_user.user_name = "testuser"
-    mock_user.user_password = "password123"
+    mock_user.user_password = generate_password_hash("password123")
 
     mock_db = MagicMock()
     mock_db.query.return_value.filter_by.return_value.first.return_value = mock_user
