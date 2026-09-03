@@ -89,19 +89,36 @@ def user_login():
     
     return jsonify({"error": "Invalid credentials"}), 401
 
+def _dicom_slice_sort_key(item):
+    fname, ds = item
+    position = getattr(ds, "ImagePositionPatient", None)
+    # Prefer DICOM slice metadata; fall back to filename only if metadata is missing.
+    values = (
+        position[2] if position is not None and len(position) > 2 else None,
+        getattr(ds, "SliceLocation", None),
+        getattr(ds, "InstanceNumber", None),
+    )
+    for priority, value in enumerate(values):
+        if value is not None:
+            try:
+                return (priority, float(value), fname)
+            except (TypeError, ValueError):
+                pass
+    return (len(values), fname)
+
 def load_dicom_series_as_numpy(dicom_dir):
     """Loads a directory of DICOM files into a 3D numpy array."""
     files = sorted(f for f in os.listdir(dicom_dir) if f.lower().endswith(".dcm"))
     if not files:
         raise RuntimeError("No .dcm files found in directory")
 
+    slices = [(fname, pydicom.dcmread(os.path.join(dicom_dir, fname))) for fname in files]
+    slices.sort(key=_dicom_slice_sort_key)
+
     volume_slices = []
     spacing = (1.0, 1.0, 1.0) 
 
-    for idx, fname in enumerate(files):
-        path = os.path.join(dicom_dir, fname)
-        ds = pydicom.dcmread(path)
-
+    for idx, (fname, ds) in enumerate(slices):
         if not hasattr(ds, "pixel_array"):
             raise RuntimeError(f"DICOM file has no pixel data: {fname}")
 
