@@ -94,8 +94,6 @@ def user_login():
                 return jsonify({"error": "Invalid password"}), 401
             else:
                 return jsonify({"message": "Login successful", "user_id": user.user_id, "user_name": user.user_name}), 200
-    
-    return jsonify({"error": "Invalid credentials"}), 401
 
 
 def load_dicom_series_as_numpy(dicom_dir):
