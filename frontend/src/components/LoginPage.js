@@ -29,7 +29,8 @@ const [password, setPassword] = useState("");
         return;
       }
       localStorage.setItem("user_id", data.user_id); // ← store user_id
-      onLoginSuccess(username);
+      localStorage.setItem("user_name", data.user_name); // ← store user_name
+      onLoginSuccess(data.user_name);
     } catch (err) {
       const message = "Network error: " + err.message;
       setError(message);

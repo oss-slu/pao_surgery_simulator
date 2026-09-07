@@ -93,7 +93,7 @@ def user_login():
             if not check_password_hash(user.user_password, user_password):
                 return jsonify({"error": "Invalid password"}), 401
             else:
-                return jsonify({"message": "Login successful", "user_id": user.user_id}), 200
+                return jsonify({"message": "Login successful", "user_id": user.user_id, "user_name": user.user_name}), 200
     
     return jsonify({"error": "Invalid credentials"}), 401
 

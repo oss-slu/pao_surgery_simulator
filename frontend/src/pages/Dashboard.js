@@ -20,13 +20,13 @@ function Dashboard() {
     const [username, setUsername] = useState("");
     
     useEffect(() => {
-        const stored = localStorage.getItem("username");
+        const stored = localStorage.getItem("user_name");
         if (stored) setUsername(stored);
     }, []);
 
 
     const handleLogout = () => {
-        localStorage.removeItem("username");
+        localStorage.removeItem("user_name");
         localStorage.removeItem("user_id");
         toast.success("Logged out successfully");
         navigate("/login", { replace: true });
