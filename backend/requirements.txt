@@ -6,3 +6,4 @@ Pillow==12.2.0
 pydicom==2.4.5
 psycopg2==2.9.12
 sqlalchemy==2.0.52
+pytest==8.4.2
