@@ -52,7 +52,11 @@ function UploadSection({ apiBase, onBack, onUploadComplete }) {
       }
 
       setUploadId(data.upload_id);
-      onUploadComplete?.(files.map((file) => file.name));
+      onUploadComplete?.(files.map((file) => file.name), {
+        uploadId: data.upload_id,
+        addedAt: new Date().toISOString(),
+        patientName: data.patient_name,
+      });
       toast.success("Files uploaded successfully");
     } catch (err) {
       console.error(err);

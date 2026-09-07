@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import Sidebar from "../components/Sidebar";
@@ -21,15 +21,41 @@ function Dashboard() {
     const [showUpload, setShowUpload] = useState(false);
     const [username, setUsername] = useState("");
     const [scans, setScans] = useState([
-        { name: "scan_1", files: ["001.dcm", "002.dcm", "003.dcm"] },
-        { name: "scan_2", files: ["004.dcm", "005.dcm"] },
-        { name: "scan_3", files: ["006.dcm", "007.dcm", "008.dcm"] },
+        {
+            id: "mock1-id", patientName: "Alex Morgan",
+            addedAt: "2026-09-01T14:30:00Z",
+            files: ["001.dcm", "002.dcm", "003.dcm"],
+        },
+        {
+            id: "mock2-id", patientName: "Taylor Reed",
+            addedAt: "2026-09-02T17:15:00Z",
+            files: ["004.dcm", "005.dcm"],
+        },
+        {
+            id: "mock3-id", patientName: "patient_name",
+            addedAt: "2026-09-03T20:45:00Z",
+            files: ["006.dcm", "007.dcm", "008.dcm"],
+        },
     ]);
-    const handleUploadComplete = (fileNames) => {
+    const handleUploadComplete = (fileNames, upload = {}) => {
+        const addedAt = upload.addedAt || new Date().toISOString();
+        const patientName = typeof upload.patientName === "string"
+            ? upload.patientName.trim() : "";
         setScans((previous) => [
             ...previous,
-            { name: `scan_${previous.length + 1}`, files: [...fileNames] },
+            {
+                id: upload.uploadId,
+                patientName: patientName || "patient_name",
+                addedAt,
+                files: [...fileNames],
+            },
         ]);
+    };
+    
+    const handlePatientRename = (scanId, value) => {
+        setScans((previous) => previous.map((scan) =>
+            scan.id === scanId ? { ...scan, patientName: value } : scan
+        ));
     };
     
     useEffect(() => {
@@ -73,9 +99,7 @@ function Dashboard() {
                             Saved Scans
                         </h2>
                         <p className="welcome-text" id="patient-scans-description">
-                            This table lists all the scans you have uploaded. You can use this information to keep track of your uploads 
-                            and manage your scans effectively. Click on the upload ID to change the scan's ID or click on the patient name
-                            to change the patient name associated with the scan.
+                            This table lists all the scans you have previously uploaded. Click on a patient's name to edit it if needed.
                         </p>
                         <p role="status">{scans.length} scans</p>
                         <div style={{ overflowX: "auto" }}>
@@ -87,19 +111,33 @@ function Dashboard() {
                                 <thead style={{ background: "#f4f6fb", color: "#1f2937" }}>
                                     <tr>
                                         <th scope="col" style={cellStyle}>Upload ID</th>
-                                        <th scope="col" style={cellStyle}>File count</th>
-                                        <th scope="col" style={cellStyle}>DICOM files</th>
+                                        <th scope="col" style={cellStyle}>Date Added</th>
+                                        <th scope="col" style={cellStyle}>Patient Name</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {scans.map((scan) => (
-                                        <tr key={scan.name}>
-                                            <th scope="row" style={cellStyle}>{scan.name}</th>
-                                            <td style={cellStyle}>{scan.files.length}</td>
-                                            <td style={{ ...cellStyle, overflowWrap: "anywhere" }}>
-                                                <div style={{ maxHeight: "10rem", overflowY: "auto" }}>
+                                        <tr key={scan.id}>
+                                            <th scope="row" style={cellStyle}>
+                                                <span style={{ overflowWrap: "anywhere" }}>{scan.id}</span>
+                                                <details style={{ marginTop: "0.5rem", fontWeight: 400 }}>
+                                                    <summary style={{ cursor: "pointer" }}>DICOM files</summary>
+                                                    <div style={{ maxHeight: "10rem", overflowY: "auto", overflowWrap: "anywhere" }}>
                                                     {scan.files.join(", ")}
                                                 </div>
+                                                </details>
+                                            </th>
+                                            <td style={cellStyle}>
+                                                <time dateTime={scan.addedAt}>
+                                                    {new Date(scan.addedAt).toLocaleString()}
+                                                </time>
+                                            </td>
+                                            <td style={cellStyle}>
+                                                <EditableScanName
+                                                    value={scan.patientName}
+                                                    label={`Patient name for ${scan.id}`}
+                                                    onSave={(value) => handlePatientRename(scan.id, value)}
+                                                />
                                             </td>
                                         </tr>
                                     ))}
@@ -112,6 +150,57 @@ function Dashboard() {
         </div>
     );
 }
+
+function EditableScanName({ value, label, onSave }) {
+    const [draft, setDraft] = useState(null);
+    const cancelled = useRef(false);
+
+    if (draft !== null) {
+        return (
+            <input
+                aria-label={label}
+                autoFocus
+                value={draft}
+                onFocus={(event) => event.target.select()}
+                onChange={(event) => setDraft(event.target.value)}
+                onBlur={() => {
+                    if (!cancelled.current) onSave(draft.trim() || value);
+                    setDraft(null);
+                }}
+                onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                    } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelled.current = true;
+                        setDraft(null);
+                    }
+                }}
+                style={{ font: "inherit", width: "100%", minWidth: "8rem", boxSizing: "border-box" }}
+            />
+        );
+    }
+
+    return (
+        <button
+            type="button"
+            aria-label={`Edit ${label.toLowerCase()}`}
+            onClick={() => {
+                cancelled.current = false;
+                setDraft(value);
+            }}
+            style={{
+                border: 0, padding: 0, background: "none", color: "#2563eb",
+                cursor: "pointer", font: "inherit", textAlign: "left",
+                textDecoration: "underline", overflowWrap: "anywhere",
+            }}
+        >
+            {value}
+        </button>
+    );
+}
+
 const cellStyle = {
     padding: "0.9rem 1rem",
     borderBottom: "1px solid #e5e7eb",

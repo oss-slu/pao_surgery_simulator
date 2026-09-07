@@ -31,6 +31,22 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'dcm'
 
+def read_patient_name(file_paths):
+    """Read the first available patient name without decoding image pixels."""
+    for file_path in file_paths:
+        try:
+            dataset = pydicom.dcmread(
+                file_path, stop_before_pixels=True, specific_tags=["PatientName"]
+            )
+            raw_name = str(getattr(dataset, "PatientName", "") or "")
+            patient_name = " ".join(raw_name.replace("^", " ").split())
+            if patient_name:
+                return patient_name
+        except Exception:
+            # Missing or unreadable metadata must not fail a successful upload.
+            continue
+    return "patient_name"
+
 @app.route("/api/signup", methods=["POST"])
 def user_signup():
     try:
@@ -158,10 +174,12 @@ def upload_dicom():
     os.makedirs(upload_path, exist_ok=True)
 
     saved_any = False
+    saved_paths = []
     for f in files:
         if f and allowed_file(f.filename):
             filename = secure_filename(f.filename)
             f.save(os.path.join(upload_path, filename))
+            saved_paths.append(os.path.join(upload_path, filename))
             saved_any = True
 
     if not saved_any:
@@ -172,7 +190,11 @@ def upload_dicom():
             new_upload = Dicom(upload_id = upload_id, user_id = int(user_id))
             db.add(new_upload)
             db.flush()
-        return jsonify({"message": "Files uploaded", "upload_id": upload_id}), 200
+        return jsonify({
+            "message": "Files uploaded",
+            "upload_id": upload_id,
+            "patient_name": read_patient_name(saved_paths),
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
