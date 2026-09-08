@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import toast from "react-hot-toast";
 import "./LoginPage.css";
+import { useNavigate } from "react-router-dom";
 
 function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
+  const navigate = useNavigate();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("admin");
   const [loading, setLoading] = useState(false);
@@ -50,6 +52,13 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
             planning.
           </p>
         </div>
+          <button
+            className="home-button"
+            type="button"
+            onClick={() => navigate("/")}
+          >
+          Home
+          </button>
         <p className="copyright">
           © {new Date().getFullYear()} Simulation Surgery Lab
         </p>

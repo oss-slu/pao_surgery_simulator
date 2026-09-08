@@ -7,7 +7,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Viewer from "./pages/Viewer";
 import ProtectedRoute from "./components/ProtectedRoute";
-
+import Landing from "./pages/Landing";
 
 function App() {
   return (
@@ -15,7 +15,7 @@ function App() {
       <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
       <Routes>
         {/* Default: redirect root to /login */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<Landing />} />
 
         <Route path="/login" element={<Login />} />
         

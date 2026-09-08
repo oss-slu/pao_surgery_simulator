@@ -36,6 +36,17 @@
   opacity: 0.8;
 }
 
+.home-button{
+  position: absolute;
+  bottom: 60px;
+  padding: 10px 20px;
+  background-color: #ffffff;
+  color: #6473e3;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
 .right-panel {
   flex: 2;
   background-color: #fcefee;

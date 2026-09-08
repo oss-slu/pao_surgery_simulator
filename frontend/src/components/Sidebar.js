@@ -2,7 +2,7 @@
 import React from "react";
 import "./Sidebar.css";
 
-function Sidebar({ username, onLogout }) {
+function Sidebar({ username, onHome, onLogout }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -24,6 +24,9 @@ function Sidebar({ username, onLogout }) {
       </div>
 
       <div className="sidebar-footer">
+        <button className="sidebar-home" onClick={onHome}>
+          Home
+        </button>
         <button className="sidebar-logout" onClick={onLogout}>
           Logout
         </button>

@@ -1,0 +1,49 @@
+.landing-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: linear-gradient(135deg, #0d47a1, #81c7f5);
+  color: white;
+  text-align: center;
+}
+
+.landing-content {
+  max-width: 650px;
+}
+
+.landing-brand {
+  margin: 0 0 1rem;
+  font-size: 5rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.landing-content h1 {
+  margin: 0;
+  font-size: 3.5rem;
+}
+
+.landing-subtitle {
+  margin: 1.25rem auto 2rem;
+  max-width: 520px;
+  font-size: 1.15rem;
+  line-height: 1.6;
+}
+
+.landing-login-button {
+  padding: 0.85rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0d47a1;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.landing-login-button:hover {
+  background: #f0f4ff;
+}

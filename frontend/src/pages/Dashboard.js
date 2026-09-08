@@ -36,7 +36,11 @@ function Dashboard() {
 
     return (
         <div className="app-shell">
-            <Sidebar username={username} onLogout={handleLogout} />
+            <Sidebar
+                username={username}
+                onHome={() => navigate("/")}
+                onLogout={handleLogout}
+            />
             <main className="main-content">
                 <div className="page-container">
                     {showUpload ? (
