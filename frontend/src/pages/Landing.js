@@ -13,9 +13,26 @@ function Landing() {
 
     return (
         <main className="landing-page">
-            <section className="landing-content">
-                <p className="landing-brand">PAO Surgery Simulator</p>
+            <header className="landing-banner">
+                <div className="landing-brand-group">
+                    <img
+                        className="landing-logo"
+                        src="/PAO_logo.png"
+                        alt="PAO Surgery Simulator logo"
+                    />
+                    <p className="landing-brand">PAO Surgery Simulator</p>
+                </div>
 
+                <button
+                    className="landing-login-button"
+                    type="button"
+                    onClick={() => navigate("/dashboard")}
+                >
+                    Go to Login
+                </button>
+            </header>
+
+            <section className="landing-content">
                 <h1>Plan with confidence.</h1>
 
                 <p className="landing-subtitle">
@@ -28,13 +45,6 @@ function Landing() {
                     for its visualization. 
                 </p>
 
-                <button
-                    className="landing-login-button"
-                    type="button"
-                    onClick={() => navigate("/login")}
-                >
-                    Go to Login
-                </button>
             </section>
         </main>
     );
