@@ -20,7 +20,7 @@ function Landing() {
                         src="/PAO_logo.png"
                         alt="PAO Surgery Simulator logo"
                     />
-                    <p className="landing-brand">PAO Surgery Simulator</p>
+                    <p className="landing-brand">Surgery Simulator</p>
                 </div>
 
                 <button
@@ -28,7 +28,7 @@ function Landing() {
                     type="button"
                     onClick={() => navigate("/dashboard")}
                 >
-                    Go to Login
+                    Login
                 </button>
             </header>
 
