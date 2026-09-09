@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import toast from "react-hot-toast";
 import "./LoginPage.css";
+import { useNavigate } from "react-router-dom";
 
 function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
+    const navigate = useNavigate();
     const [fullName, setFullName] = useState("");
     const [email, setEmail] = useState("");
     const [organization, setOrganization] = useState("");
@@ -60,6 +62,13 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
                         your team.
                     </p>
                 </div>
+                <button
+                    className="home-button"
+                    type="button"
+                    onClick={() => navigate("/")}
+                >
+                    Home
+                </button>
                 <p className="copyright">
                     © {new Date().getFullYear()} Simulation Surgery Lab
                 </p>
