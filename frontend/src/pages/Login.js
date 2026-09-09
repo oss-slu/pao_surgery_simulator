@@ -16,8 +16,7 @@ function Login() {
     const navigate = useNavigate();
     const [showSignUp, setShowSignUp] = useState(false);
 
-    const handleLoginSuccess = (username) => {
-        localStorage.setItem("username", username);
+    const handleLoginSuccess = () => {
         navigate("/dashboard");
     };
 
