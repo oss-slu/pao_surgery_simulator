@@ -3,7 +3,7 @@ import toast from "react-hot-toast";
 import "./UploadSection.css";
 import VTKViewer from "./VTKViewer";
 
-function UploadSection({ apiBase, onBack }) {
+function UploadSection({ apiBase, onBack, onUploadComplete }) {
   const fileInputRef = useRef(null);
   const [files, setFiles] = useState([]);
   const [uploadId, setUploadId] = useState(null);
@@ -52,6 +52,11 @@ function UploadSection({ apiBase, onBack }) {
       }
 
       setUploadId(data.upload_id);
+      onUploadComplete?.(files.map((file) => file.name), {
+        uploadId: data.upload_id,
+        addedAt: new Date().toISOString(),
+        patientName: data.patient_name,
+      });
       toast.success("Files uploaded successfully");
     } catch (err) {
       console.error(err);

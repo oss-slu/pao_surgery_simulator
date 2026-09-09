@@ -6,6 +6,7 @@ import vtk
 from vtkmodules.util import numpy_support 
 from PIL import Image 
 from werkzeug.utils import secure_filename 
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
@@ -31,6 +32,22 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'dcm'
 
+def read_patient_name(file_paths):
+    """Read the first available patient name without decoding image pixels."""
+    for file_path in file_paths:
+        try:
+            dataset = pydicom.dcmread(
+                file_path, stop_before_pixels=True, specific_tags=["PatientName"]
+            )
+            raw_name = str(getattr(dataset, "PatientName", "") or "")
+            patient_name = " ".join(raw_name.replace("^", " ").split())
+            if patient_name:
+                return patient_name
+        except Exception:
+            # Missing or unreadable metadata must not fail a successful upload.
+            continue
+    return "patient_name"
+
 @app.route("/api/signup", methods=["POST"])
 def user_signup():
     try:
@@ -51,7 +68,7 @@ def user_signup():
         user_password = data.get("user_password")
         if not isinstance(user_password, str) or len(user_password) < 6 or len(user_password) > 255:
             return jsonify({"error": "Invalid password"}), 400
-
+        user_password = generate_password_hash(user_password)
         with connect() as db:
             existing_user = db.query(User).filter_by(user_name = user_name).first()
             if existing_user:
@@ -83,11 +100,17 @@ def user_login():
     
     if not user_password:
         return jsonify({"error": "Missing Password"}), 400
-
-    if user_name == "admin" and user_password == "admin":
-        return jsonify({"message": "Login successful", "user_id": 1}), 200
     
-    return jsonify({"error": "Invalid credentials"}), 401
+    with connect() as db:
+        user = db.query(User).filter_by(user_name=user_name).first()
+        if not user:
+            return jsonify({"error": "Invalid username"}), 401
+        else: 
+            if not check_password_hash(user.user_password, user_password):
+                return jsonify({"error": "Invalid password"}), 401
+            else:
+                return jsonify({"message": "Login successful", "user_id": user.user_id, "user_name": user.user_name}), 200
+
 
 def load_dicom_series_as_numpy(dicom_dir):
     """Loads a directory of DICOM files into a 3D numpy array."""
@@ -158,10 +181,12 @@ def upload_dicom():
     os.makedirs(upload_path, exist_ok=True)
 
     saved_any = False
+    saved_paths = []
     for f in files:
         if f and allowed_file(f.filename):
             filename = secure_filename(f.filename)
             f.save(os.path.join(upload_path, filename))
+            saved_paths.append(os.path.join(upload_path, filename))
             saved_any = True
 
     if not saved_any:
@@ -172,7 +197,11 @@ def upload_dicom():
             new_upload = Dicom(upload_id = upload_id, user_id = int(user_id))
             db.add(new_upload)
             db.flush()
-        return jsonify({"message": "Files uploaded", "upload_id": upload_id}), 200
+        return jsonify({
+            "message": "Files uploaded",
+            "upload_id": upload_id,
+            "patient_name": read_patient_name(saved_paths),
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
