@@ -286,7 +286,7 @@ def render_dicom_metadata(upload_id):
         ds = pydicom.dcmread(first_dicom)
 
         rows = int(ds.Rows) if hasattr(ds, "Rows") else None
-        cols = int(ds.Columns) if hasattr(ds, "Columns") else None
+        columns = int(ds.Columns) if hasattr(ds, "Columns") else None
 
         pixel_spacing = getattr(ds, "PixelSpacing", [None, None])
         slice_thickness = getattr(ds, "SliceThickness", None)
