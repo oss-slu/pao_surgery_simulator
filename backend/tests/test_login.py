@@ -1,3 +1,9 @@
+"""Tests for POST /api/login.
+
+@patch("app.connect") replaces the real DB session so these never need Postgres.
+Use the shared `client` fixture from conftest (this file also keeps a local
+duplicate for historical reasons).
+"""
 import pytest
 from unittest.mock import patch, MagicMock
 from app import app
@@ -12,6 +18,7 @@ def client():
 
 
 def _mock_db_with_user(mock_connect, user=None):
+    """Make connect()'s session return `user` from query(...).filter_by(...).first()."""
     mock_db = MagicMock()
     mock_db.query.return_value.filter_by.return_value.first.return_value = user
     mock_connect.return_value.__enter__.return_value = mock_db
@@ -19,6 +26,7 @@ def _mock_db_with_user(mock_connect, user=None):
 
 
 def _make_user(user_id=1, user_name="testuser", password="password123"):
+    """Fake User row; password is a real Werkzeug hash (login uses check_password_hash)."""
     mock_user = MagicMock()
     mock_user.user_id = user_id
     mock_user.user_name = user_name
@@ -116,6 +124,7 @@ def test_login_invalid_username(mock_connect, client):
 
 @patch("app.connect")
 def test_login_alt_field_names(mock_connect, client):
+    # Route also accepts username/password aliases.
     _mock_db_with_user(mock_connect, _make_user())
 
     response = client.post("/api/login", json={

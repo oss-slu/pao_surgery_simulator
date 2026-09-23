@@ -1,8 +1,13 @@
+"""Tests for POST /api/upload_dicom (multipart .dcm + form user_id).
+
+Patch UPLOAD_FOLDER to tmp_path so files never land in the real uploads dir.
+"""
 from io import BytesIO
 from unittest.mock import patch, MagicMock
 
 
 def _mock_db(mock_connect):
+    """Minimal connect() session so Dicom row insert can succeed."""
     mock_db = MagicMock()
     mock_connect.return_value.__enter__.return_value = mock_db
     return mock_db
@@ -45,6 +50,7 @@ def test_upload_only_non_dcm(client, tmp_path):
 @patch("app.read_patient_name", return_value="Test Patient")
 @patch("app.connect")
 def test_upload_valid_dcm(mock_connect, _mock_patient, client, tmp_path):
+    # Bytes need not be real DICOM; extension .dcm is what the route checks.
     _mock_db(mock_connect)
 
     with patch("app.UPLOAD_FOLDER", str(tmp_path)):

@@ -1,3 +1,4 @@
+"""Tests for GET /api/download_dicom/<upload_id> (ZIP of the upload folder)."""
 from unittest.mock import patch
 import zipfile
 from io import BytesIO

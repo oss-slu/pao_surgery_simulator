@@ -1,3 +1,7 @@
+"""Tests for GET /api/render_dicom/<upload_id> (returns volume.vti bytes).
+
+Success path mocks DICOM load + VTK writer so no real VTK/DICOM is required.
+"""
 from unittest.mock import patch, MagicMock
 
 import numpy as np
@@ -31,6 +35,7 @@ def test_render_success(mock_vtk, mock_load, mock_to_vtk, client, tmp_path):
     mock_load.return_value = (volume, spacing)
     mock_to_vtk.return_value = MagicMock()
 
+    # Route writes volume.vti then send_from_directory; create the file on Write().
     def _write_vti():
         (dicom_dir / "volume.vti").write_bytes(b"fake-vti")
 

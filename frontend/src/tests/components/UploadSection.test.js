@@ -1,3 +1,7 @@
+/**
+ * UploadSection: multipart upload + wiring Render 3D to /api/render_dicom/<id>.
+ * VTKViewer is stubbed so Jest never loads real VTK.js.
+ */
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -137,6 +141,7 @@ test('render sets VTKViewer modelUrl to render_dicom path', async () => {
     expect(screen.getByRole('button', { name: 'Render 3D' })).not.toBeDisabled();
   });
 
+  // Render sets modelUrl only; it does not issue another fetch.
   const fetchCallsBeforeRender = global.fetch.mock.calls.length;
   await user.click(screen.getByRole('button', { name: 'Render 3D' }));
 

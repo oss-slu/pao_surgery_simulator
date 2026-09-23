@@ -21,6 +21,7 @@ with patch("db.initialize_db", return_value=True):
 
 @pytest.fixture
 def client():
+    """Flask test client shared by route tests (in-process HTTP, no real server)."""
     app.config["TESTING"] = True
     with app.test_client() as test_client:
         yield test_client

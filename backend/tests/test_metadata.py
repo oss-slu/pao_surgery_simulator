@@ -1,3 +1,7 @@
+"""Tests for GET /api/render_dicom/<upload_id>/metadata.
+
+pydicom.dcmread is mocked; tmp_path only needs a placeholder .dcm file present.
+"""
 from unittest.mock import patch, MagicMock
 
 import numpy as np
@@ -30,6 +34,7 @@ def test_metadata_no_dcm_files(client, tmp_path):
 
 
 def _mock_dataset():
+    """Minimal DICOM-like object with attrs the metadata route reads."""
     ds = MagicMock()
     ds.Rows = 64
     ds.Columns = 128

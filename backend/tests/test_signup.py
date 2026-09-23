@@ -1,7 +1,13 @@
+"""Tests for POST /api/signup.
+
+DB is mocked; validation-only cases never open a session.
+Signup success JSON uses `id` (not `user_id`) — keep assertions aligned with app.py.
+"""
 from unittest.mock import patch, MagicMock
 
 
 def _mock_db(mock_connect, username_user=None, email_user=None):
+    """Fake session for the two uniqueness lookups (username, then email)."""
     mock_db = MagicMock()
     mock_db.query.return_value.filter_by.return_value.first.side_effect = [
         username_user,

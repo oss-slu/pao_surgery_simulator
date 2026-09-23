@@ -1,3 +1,6 @@
+/**
+ * ProtectedRoute only checks localStorage user_id (no JWT/cookie).
+ */
 import React from 'react';
 import { screen } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';

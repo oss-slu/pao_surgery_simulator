@@ -1,3 +1,7 @@
+"""Tests for GET /api/sessions.
+
+"Sessions" here means upload subdirectories under UPLOAD_FOLDER, not login sessions.
+"""
 from unittest.mock import patch
 
 

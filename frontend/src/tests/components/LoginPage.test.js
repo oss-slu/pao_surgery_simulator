@@ -1,3 +1,7 @@
+/**
+ * LoginPage: form render + POST /api/login handling.
+ * fetch is mocked — these do not start Flask.
+ */
 import React from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -30,6 +34,7 @@ test('successful login stores user_id and user_name', async () => {
   const user = userEvent.setup();
   const onLoginSuccess = jest.fn();
 
+  // Fake network response shaped like Flask login success.
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
