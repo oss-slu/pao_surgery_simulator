@@ -4,6 +4,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+AGENTS.md
+AgentsNotes.md
 
 build/
 dist/
