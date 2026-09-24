@@ -12,7 +12,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from sqlalchemy import text
 from db import connect, initialize_db
-from models import User, Dicom
+from models import User, Dicom, Label
 
 app = Flask(__name__)
 CORS(app)
@@ -219,6 +219,86 @@ def upload_dicom():
             "upload_id": upload_id,
             "patient_name": read_patient_name(saved_paths),
         }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+def _label_response(label):
+    return {
+        "label_id": label.label_id,
+        "name": label.name,
+        "description": label.description,
+        "coordinates": {"x": label.x, "y": label.y, "z": label.z},
+        "body_part_id": label.body_part_id,
+        "scan_2d_id": label.scan_2d_id,
+        "scan_3d_id": label.scan_3d_id,
+        "scan_id": label.scan_id,
+        "visible": label.visible,
+    }
+
+def _parse_coordinates(data):
+    coordinates = data.get("coordinates")
+    if not isinstance(coordinates, dict):
+        return None
+    try:
+        return tuple(float(coordinates[axis]) for axis in ("x", "y", "z"))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+@app.route("/api/scans/<scan_id>/labels", methods=["POST"])
+def create_label(scan_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Missing data"}), 400
+
+    name = data.get("name")
+    coordinates = _parse_coordinates(data)
+    if not isinstance(name, str) or not name.strip():
+        return jsonify({"error": "Name is required"}), 400
+    if coordinates is None:
+        return jsonify({"error": "Coordinates must include numeric x, y, and z values"}), 400
+
+    try:
+        with connect() as db:
+            scan = db.query(Dicom).filter_by(upload_id=scan_id).first()
+            if not scan:
+                return jsonify({"error": "Scan not found"}), 404
+            label = Label(
+                name=name.strip(),
+                description=data.get("description") or "",
+                x=coordinates[0],
+                y=coordinates[1],
+                z=coordinates[2],
+                body_part_id=data.get("body_part_id"),
+                scan_2d_id=data.get("scan_2d_id"),
+                scan_3d_id=data.get("scan_3d_id") or scan_id,
+                scan_id=scan_id,
+                visible=data.get("visible", True),
+            )
+            db.add(label)
+            db.flush()
+            return jsonify(_label_response(label)), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/scans/<scan_id>/labels", methods=["GET"])
+def list_labels(scan_id):
+    try:
+        with connect() as db:
+            labels = db.query(Label).filter_by(scan_id=scan_id).all()
+            return jsonify({"scan_id": scan_id, "labels": [_label_response(label) for label in labels]}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/scans/<scan_id>/labels/<int:label_id>/toggle", methods=["PATCH"])
+def toggle_label(scan_id, label_id):
+    try:
+        with connect() as db:
+            label = db.query(Label).filter_by(scan_id=scan_id, label_id=label_id).first()
+            if not label:
+                return jsonify({"error": "Label not found"}), 404
+            label.visible = not label.visible
+            db.flush()
+            return jsonify(_label_response(label)), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

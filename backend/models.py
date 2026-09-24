@@ -1,6 +1,8 @@
 from typing import List
 from sqlalchemy import ForeignKey
 from sqlalchemy import String
+from sqlalchemy import Boolean
+from sqlalchemy import Float
 from sqlalchemy import Integer
 from sqlalchemy import TIMESTAMP
 from sqlalchemy import func
@@ -49,6 +51,22 @@ class Dicom(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)
     upload_date: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     user: Mapped["User"] = relationship("User", back_populates="dicom_uploads")
+    labels: Mapped[List["Label"]] = relationship("Label", back_populates="scan", cascade="all, delete-orphan")
+
+class Label(Base):
+    __tablename__ = "labels"
+    label_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
+    x: Mapped[float] = mapped_column(Float, nullable=False)
+    y: Mapped[float] = mapped_column(Float, nullable=False)
+    z: Mapped[float] = mapped_column(Float, nullable=False)
+    body_part_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    scan_2d_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    scan_3d_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    scan_id: Mapped[str] = mapped_column(ForeignKey("dicom_uploads.upload_id"), nullable=False, index=True)
+    visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    scan: Mapped["Dicom"] = relationship("Dicom", back_populates="labels")
 
 class Patient_Scan(Base):
     __tablename__ = "patient_scans"
