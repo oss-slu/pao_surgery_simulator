@@ -286,8 +286,9 @@ def list_labels(scan_id):
         with connect() as db:
             labels = db.query(Label).filter_by(scan_id=scan_id).all()
             return jsonify({"scan_id": scan_id, "labels": [_label_response(label) for label in labels]}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        app.logger.exception("Failed to list labels for scan_id=%s", scan_id)
+        return jsonify({"error": "An internal error has occurred"}), 500
 
 @app.route("/api/scans/<scan_id>/labels/<int:label_id>/toggle", methods=["PATCH"])
 def toggle_label(scan_id, label_id):
