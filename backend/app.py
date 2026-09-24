@@ -300,8 +300,9 @@ def toggle_label(scan_id, label_id):
             label.visible = not label.visible
             db.flush()
             return jsonify(_label_response(label)), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        app.logger.exception("Failed to toggle label visibility for scan_id=%s, label_id=%s", scan_id, label_id)
+        return jsonify({"error": "An internal error has occurred"}), 500
 
 @app.route("/api/render_dicom/<upload_id>", methods=["GET"])
 def render_dicom(upload_id):
