@@ -277,8 +277,9 @@ def create_label(scan_id):
             db.add(label)
             db.flush()
             return jsonify(_label_response(label)), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        app.logger.exception("Failed to create label for scan_id=%s", scan_id)
+        return jsonify({"error": "An internal error has occurred"}), 500
 
 @app.route("/api/scans/<scan_id>/labels", methods=["GET"])
 def list_labels(scan_id):
