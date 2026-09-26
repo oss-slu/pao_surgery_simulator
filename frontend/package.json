@@ -10,20 +10,24 @@
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^7.18.2",
-    "react-scripts": "^0.0.0",
     "react-spinners": "^0.17.0",
     "url": "^0.11.4"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "test:ci": "react-scripts test --watchAll=false --ci"
+    "start": "vite",
+    "build": "vite build",
+    "test": "vitest",
+    "test:ci": "vitest run"
   },
-  "jest": {
-    "moduleNameMapper": {
-      "^react-router/dom$": "<rootDir>/node_modules/react-router/dist/development/dom-export.js"
-    }
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^29.1.1",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.2"
   },
   "browserslist": {
     "production": [
@@ -36,11 +40,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "devDependencies": {
-    "@testing-library/dom": "^10.4.2",
-    "@testing-library/jest-dom": "^7.0.1",
-    "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.7"
   }
 }

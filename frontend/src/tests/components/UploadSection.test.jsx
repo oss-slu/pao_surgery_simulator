@@ -1,6 +1,6 @@
 /**
  * UploadSection: multipart upload + wiring Render 3D to /api/render_dicom/<id>.
- * VTKViewer is stubbed so Jest never loads real VTK.js.
+ * VTKViewer is stubbed so vitest never loads real VTK.js.
  */
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -8,20 +8,27 @@ import userEvent from '@testing-library/user-event';
 import toast from 'react-hot-toast';
 import UploadSection from '../../components/UploadSection';
 import { clearAuthStorage, seedAuthStorage } from '../test-utils';
+import {
+  afterEach,
+  describe,
+  expect,
+  test,
+  vi,
+} from 'vitest';
 
-jest.mock('../../components/VTKViewer', () => {
-  return function VTKViewerStub({ modelUrl }) {
+vi.mock('../../components/VTKViewer', () => ({
+  default: function VTKViewerStub({ modelUrl }) {
     return (
       <div data-testid="vtk-stub">{modelUrl}</div>
     );
-  };
-});
+  },
+}));
 
 const API_BASE = 'http://127.0.0.1:5000';
 
 afterEach(() => {
   clearAuthStorage();
-  jest.restoreAllMocks();
+  vi.restoreAllMocks();
   toast.success.mockClear();
   toast.error.mockClear();
 });
@@ -30,8 +37,8 @@ function renderUpload(props = {}) {
   return render(
     <UploadSection
       apiBase={API_BASE}
-      onBack={jest.fn()}
-      onUploadComplete={jest.fn()}
+      onBack={vi.fn()}
+      onUploadComplete={vi.fn()}
       {...props}
     />
   );
@@ -59,10 +66,10 @@ test('renders upload UI', () => {
 
 test('successful upload posts FormData and calls onUploadComplete', async () => {
   const user = userEvent.setup();
-  const onUploadComplete = jest.fn();
+  const onUploadComplete = vi.fn();
   seedAuthStorage({ userId: '9', userName: 'surgeon' });
 
-  global.fetch = jest.fn().mockResolvedValue({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
       message: 'Files uploaded',
@@ -103,7 +110,7 @@ test('failed upload shows error toast', async () => {
   const user = userEvent.setup();
   seedAuthStorage({ userId: '1' });
 
-  global.fetch = jest.fn().mockResolvedValue({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: false,
     json: async () => ({ error: 'No valid .dcm files uploaded' }),
   });
@@ -124,7 +131,7 @@ test('render sets VTKViewer modelUrl to render_dicom path', async () => {
   const user = userEvent.setup();
   seedAuthStorage({ userId: '1' });
 
-  global.fetch = jest.fn().mockResolvedValue({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
       message: 'Files uploaded',

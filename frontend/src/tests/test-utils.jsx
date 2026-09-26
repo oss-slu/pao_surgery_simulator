@@ -16,7 +16,7 @@ export function seedAuthStorage({ userId = '1', userName = 'testuser' } = {}) {
   localStorage.setItem('user_name', userName);
 }
 
-/** Render with MemoryRouter so components using react-router hooks work in Jest. */
+/** Render with MemoryRouter so components using react-router hooks work in vitest. */
 export function renderWithRouter(ui, { route = '/', ...options } = {}) {
   return render(
     <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>,

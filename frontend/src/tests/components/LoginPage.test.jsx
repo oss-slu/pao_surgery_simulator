@@ -7,20 +7,27 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LoginPage from '../../components/LoginPage';
 import { clearAuthStorage, renderWithRouter } from '../test-utils';
+import {
+  afterEach,
+  describe,
+  expect,
+  test,
+  vi,
+} from 'vitest';
 
 const API_BASE = 'http://127.0.0.1:5000';
 
 afterEach(() => {
   clearAuthStorage();
-  jest.restoreAllMocks();
+  vi.restoreAllMocks();
 });
 
 test('renders login form', () => {
   const { container } = renderWithRouter(
     <LoginPage
       apiBase={API_BASE}
-      onLoginSuccess={jest.fn()}
-      onShowSignUp={jest.fn()}
+      onLoginSuccess={vi.fn()}
+      onShowSignUp={vi.fn()}
     />
   );
 
@@ -32,10 +39,10 @@ test('renders login form', () => {
 
 test('successful login stores user_id and user_name', async () => {
   const user = userEvent.setup();
-  const onLoginSuccess = jest.fn();
+  const onLoginSuccess = vi.fn();
 
   // Fake network response shaped like Flask login success.
-  global.fetch = jest.fn().mockResolvedValue({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
       message: 'Login successful',
@@ -48,7 +55,7 @@ test('successful login stores user_id and user_name', async () => {
     <LoginPage
       apiBase={API_BASE}
       onLoginSuccess={onLoginSuccess}
-      onShowSignUp={jest.fn()}
+      onShowSignUp={vi.fn()}
     />
   );
 
