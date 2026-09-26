@@ -7,13 +7,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LoginPage from '../../components/LoginPage';
 import { clearAuthStorage, renderWithRouter } from '../test-utils';
-import {
-  afterEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from 'vitest';
+import { vi } from 'vitest';
 
 const API_BASE = 'http://127.0.0.1:5000';
 

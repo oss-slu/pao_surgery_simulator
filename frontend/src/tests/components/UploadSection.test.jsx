@@ -8,13 +8,7 @@ import userEvent from '@testing-library/user-event';
 import toast from 'react-hot-toast';
 import UploadSection from '../../components/UploadSection';
 import { clearAuthStorage, seedAuthStorage } from '../test-utils';
-import {
-  afterEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from 'vitest';
+import { vi } from 'vitest';
 
 vi.mock('../../components/VTKViewer', () => ({
   default: function VTKViewerStub({ modelUrl }) {

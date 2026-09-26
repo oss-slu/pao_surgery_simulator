@@ -7,13 +7,7 @@ import userEvent from '@testing-library/user-event';
 import toast from 'react-hot-toast';
 import SignUpPage from '../../components/SignUpPage';
 import { clearAuthStorage, renderWithRouter } from '../test-utils';
-import {
-  afterEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from 'vitest';
+import { vi } from 'vitest';
 
 const API_BASE = 'http://127.0.0.1:5000';
 
