@@ -110,6 +110,56 @@ def user_login():
                 return jsonify({"error": "Invalid password"}), 401
             else:
                 return jsonify({"message": "Login successful", "user_id": user.user_id, "user_name": user.user_name}), 200
+            
+@app.route("/api/users/<int:user_id>/scans", methods=["GET"])
+def list_user_scans(user_id):
+    """List database uploads and saved DICOM filenames for the requested user."""
+    try:
+        with connect() as db:
+            if db.query(User).filter_by(user_id=user_id).first() is None:
+                return jsonify({"error": "User not found"}), 404
+
+            uploads = (
+                db.query(Dicom)
+                .filter_by(user_id=user_id)
+                .order_by(Dicom.upload_date.desc(), Dicom.upload_id.asc())
+                .all()
+            )
+            scans = []
+            base_uploads = os.path.realpath(UPLOAD_FOLDER)
+            for upload in uploads:
+                upload_path = os.path.realpath(
+                    os.path.join(base_uploads, upload.upload_id)
+                )
+                if (
+                    upload.upload_id != secure_filename(upload.upload_id)
+                    or os.path.commonpath([base_uploads, upload_path]) != base_uploads
+                    or upload_path == base_uploads
+                ):
+                    raise ValueError("Invalid stored upload path")
+
+                try:
+                    with os.scandir(upload_path) as entries:
+                        files = sorted(
+                            entry.name for entry in entries
+                            if entry.is_file(follow_symlinks=False)
+                            and allowed_file(entry.name)
+                        )
+                except FileNotFoundError:
+                    # Keep the database record visible if its files were removed.
+                    files = []
+
+                scans.append({
+                    "upload_id": upload.upload_id,
+                    "user_id": upload.user_id,
+                    "upload_date": upload.upload_date.isoformat() if upload.upload_date else None,
+                    "files": files,
+                })
+
+        return jsonify(scans), 200
+    except Exception:
+        app.logger.exception("Failed to list user scans")
+        return jsonify({"error": "Failed to list user scans"}), 500
 
 
 def _dicom_slice_sort_key(item):

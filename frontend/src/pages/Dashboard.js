@@ -14,41 +14,77 @@ const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
  * Reads the logged-in username from localStorage (set by Login page).
  * On logout, clears localStorage and navigates back to /login.
  * 
- * Now includes a callback to handle successful uploads, which updates the scan list in memory.
+ * Loads saved uploads on mount and adds successful new uploads to the list in memory.
  */
 function Dashboard() {
     const navigate = useNavigate();
     const [showUpload, setShowUpload] = useState(false);
     const [username, setUsername] = useState("");
-    const [scans, setScans] = useState([
-        {
-            id: "mock1-id", patientName: "Alex Morgan",
-            addedAt: "2026-09-01T14:30:00Z",
-            files: ["001.dcm", "002.dcm", "003.dcm"],
-        },
-        {
-            id: "mock2-id", patientName: "Taylor Reed",
-            addedAt: "2026-09-02T17:15:00Z",
-            files: ["004.dcm", "005.dcm"],
-        },
-        {
-            id: "mock3-id", patientName: "patient_name",
-            addedAt: "2026-09-03T20:45:00Z",
-            files: ["006.dcm", "007.dcm", "008.dcm"],
-        },
-    ]);
+    const [scans, setScans] = useState([]);
+    const [loadingScans, setLoadingScans] = useState(true);
+    const [scansError, setScansError] = useState("");
+
+    useEffect(() => {
+        const userId = localStorage.getItem("user_id");
+        if (!userId) {
+            setScansError("Please log in to view your saved scans.");
+            setLoadingScans(false);
+            return;
+        }
+
+        const controller = new AbortController();
+        const loadScans = async () => {
+            setLoadingScans(true);
+            setScansError("");
+            try {
+                const response = await fetch(
+                    `${API_BASE}/api/users/${encodeURIComponent(userId)}/scans`,
+                    { signal: controller.signal }
+                );
+                if (!response.ok) {
+                    throw new Error(`Unable to load saved scans (HTTP ${response.status}).`);
+                }
+                const uploads = await response.json();
+                if (!Array.isArray(uploads)) {
+                    throw new Error("The server returned an invalid scan list.");
+                }
+                const savedScans = uploads.map((upload) => ({
+                    id: upload.upload_id,
+                    addedAt: upload.upload_date,
+                    // The scans endpoint does not return patient names yet.
+                    patientName: "patient_name",
+                    files: upload.files,
+                }));
+                if (controller.signal.aborted) return;
+                // Preserve uploads completed while the initial request was pending.
+                setScans((previous) => [
+                    ...previous,
+                    ...savedScans.filter((scan) => !previous.some((item) => item.id === scan.id)),
+                ]);
+            } catch (error) {
+                if (!controller.signal.aborted) {
+                    setScansError(error.message || "Unable to load saved scans.");
+                }
+            } finally {
+                if (!controller.signal.aborted) setLoadingScans(false);
+            }
+        };
+
+        loadScans();
+        return () => controller.abort();
+    }, []);
     const handleUploadComplete = (fileNames, upload = {}) => {
         const addedAt = upload.addedAt || new Date().toISOString();
         const patientName = typeof upload.patientName === "string"
             ? upload.patientName.trim() : "";
         setScans((previous) => [
-            ...previous,
             {
                 id: upload.uploadId,
                 patientName: patientName || "patient_name",
                 addedAt,
                 files: [...fileNames],
             },
+            ...previous,
         ]);
     };
     
@@ -105,7 +141,15 @@ function Dashboard() {
                         <p className="welcome-text" id="patient-scans-description">
                             This table lists all the scans you have previously uploaded. Click on a patient's name to edit it if needed.
                         </p>
-                        <p role="status">{scans.length} scans</p>
+                        {loadingScans ? (
+                            <p role="status">Loading saved scans...</p>
+                        ) : scansError ? (
+                            <p role="alert">{scansError}</p>
+                        ) : (
+                            <p role="status"><strong>
+                                {scans.length === 0 ? "No patient scans found. Click 'New Patient Scan' to begin." : `${scans.length} scans`}
+                            </strong></p>
+                        )}
                         <div style={{ overflowX: "auto" }}>
                             <table
                                 aria-labelledby="patient-scans-heading"
@@ -132,9 +176,11 @@ function Dashboard() {
                                                 </details>
                                             </th>
                                             <td style={cellStyle}>
+                                                {scan.addedAt ? (
                                                 <time dateTime={scan.addedAt}>
                                                     {new Date(scan.addedAt).toLocaleString()}
                                                 </time>
+                                                ) : "Date unavailable"}
                                             </td>
                                             <td style={cellStyle}>
                                                 <EditableScanName
