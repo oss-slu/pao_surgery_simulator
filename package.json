@@ -2,6 +2,7 @@
   "name": "dicom-frontend",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "dependencies": {
     "@kitware/vtk.js": "^36.12.0",
     "axios": "^1.18.0",
@@ -13,6 +14,7 @@
   },
   "scripts": {
     "start": "vite",
+    "run": "vite",
     "build": "vite build",
     "test": "vitest",
     "test:ci": "vitest run"
