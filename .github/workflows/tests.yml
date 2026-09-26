@@ -42,5 +42,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Jest
+      - name: Run vitest
         run: npm run test:ci
