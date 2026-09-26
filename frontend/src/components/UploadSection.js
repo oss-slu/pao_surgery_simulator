@@ -11,6 +11,8 @@ function UploadSection({ apiBase, onBack, onUploadComplete }) {
   const [uploading, setUploading] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [error, setError] = useState("");
+  const [labelStatus, setLabelStatus] = useState("");
+  const [createdLabel, setCreatedLabel] = useState(null);
 
   const handleChooseFiles = () => {
     if (fileInputRef.current) {
@@ -24,6 +26,8 @@ function UploadSection({ apiBase, onBack, onUploadComplete }) {
     setUploadId(null);
     setRenderUrl("");
     setError("");
+    setLabelStatus("");
+    setCreatedLabel(null);
   };
 
   const handleUpload = async () => {
@@ -88,6 +92,37 @@ function UploadSection({ apiBase, onBack, onUploadComplete }) {
     }
   };
 
+  const handleSendDummyLabel = async () => {
+    if (!uploadId) {
+      toast.error("Upload a DICOM series before sending a label.");
+      return;
+    }
+
+    setLabelStatus("Sending label...");
+    try {
+      const res = await fetch(`${apiBase}/api/scans/${uploadId}/labels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Demo anatomy point",
+          description: "Temporary label sent from the upload page.",
+          coordinates: { x: 12.5, y: 8.25, z: -4.75 },
+          body_part_id: "demo-body-part",
+          scan_2d_id: uploadId,
+          scan_3d_id: uploadId,
+          visible: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Label request failed (${res.status})`);
+      setCreatedLabel(data);
+      setLabelStatus("Dummy label saved");
+    } catch (err) {
+      setLabelStatus(err.message);
+      toast.error(err.message || "Failed to send label");
+    }
+  };
+
   return (
     <div className="upload-wrapper">
       <div className="upload-header">
@@ -129,7 +164,17 @@ function UploadSection({ apiBase, onBack, onUploadComplete }) {
         >
           {rendering ? "Rendering..." : "Render 3D"}
         </button>
+        <button
+          className="secondary-btn"
+          onClick={handleSendDummyLabel}
+          disabled={!uploadId}
+          type="button"
+        >
+          Send dummy label
+        </button>
       </div>
+
+      {labelStatus && <p role="status">{labelStatus}</p>}
 
       {files.length > 0 && (
         <div className="file-list">
@@ -148,7 +193,7 @@ function UploadSection({ apiBase, onBack, onUploadComplete }) {
         <div className="rendered-image">
           <h3>Interactive 3D Render</h3>
           
-          <VTKViewer modelUrl={renderUrl} /> 
+          <VTKViewer modelUrl={renderUrl} label={createdLabel} />
         </div>
       )}
     </div>

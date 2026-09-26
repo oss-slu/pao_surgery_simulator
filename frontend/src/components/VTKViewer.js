@@ -7,7 +7,7 @@ import vtkXMLImageDataReader from '@kitware/vtk.js/IO/XML/XMLImageDataReader';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import vtkPiecewiseFunction from '@kitware/vtk.js/Common/DataModel/PiecewiseFunction';
 
-function VTKViewer({ modelUrl }) {
+function VTKViewer({ modelUrl, label }) {
   const vtkContainerRef = useRef(null);
   const context = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -91,6 +91,33 @@ function VTKViewer({ modelUrl }) {
   return (
     <div style={{ width: '100%', height: '512px', border: '1px solid #444', position: 'relative' }}>
       <div ref={vtkContainerRef} style={{ width: '100%', height: '100%' }} />
+
+      {label && label.visible !== false && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            top: '1rem',
+            left: '1rem',
+            zIndex: 10,
+            maxWidth: 'min(24rem, calc(100% - 2rem))',
+            padding: '0.75rem 1rem',
+            background: 'rgba(15, 52, 96, 0.94)',
+            border: '1px solid #90cdf4',
+            borderRadius: '6px',
+            color: '#ffffff',
+            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
+          }}
+        >
+          <strong style={{ display: 'block' }}>{label.name}</strong>
+          <span style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.9rem' }}>
+            {label.description}
+          </span>
+          <code style={{ display: 'block', marginTop: '0.35rem', color: '#bee3f8' }}>
+            3D: ({label.coordinates.x}, {label.coordinates.y}, {label.coordinates.z})
+          </code>
+        </div>
+      )}
 
       {isLoading && (
         <div style={{position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", zIndex: 1000}}>
