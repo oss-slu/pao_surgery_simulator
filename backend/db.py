@@ -35,6 +35,14 @@ def initialize_db():
             for row in result:
                 print("Connected to:", row)
         Base.metadata.create_all(bind=engine)
+        # create_all never adds columns to existing tables; pre-existing rows are treated as verified.
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS user_verified BOOLEAN NOT NULL DEFAULT true"
+            ))
+            conn.execute(text(
+                "ALTER TABLE users ALTER COLUMN user_verified SET DEFAULT false"
+            ))
         print("Tables created successfully.")
         return True
     except Exception as e:
