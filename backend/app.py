@@ -78,7 +78,7 @@ def user_signup():
             if existing_email:
                 return jsonify({"error": "Email has been used"}), 400
 
-            new_user = User( user_name=user_name, user_email=user_email, user_organization=user_organization, user_password=user_password)
+            new_user = User( user_name=user_name, user_email=user_email,user_verified=False, user_organization=user_organization, user_password=user_password)
             db.add(new_user)
             db.flush()
             return jsonify({"message": "User Account", "id": new_user.user_id}), 201
@@ -108,6 +108,8 @@ def user_login():
         else: 
             if not check_password_hash(user.user_password, user_password):
                 return jsonify({"error": "Invalid password"}), 401
+            elif not user.user_verified:
+                return jsonify({"error": "User not verified"}), 401
             else:
                 return jsonify({"message": "Login successful", "user_id": user.user_id, "user_name": user.user_name}), 200
             

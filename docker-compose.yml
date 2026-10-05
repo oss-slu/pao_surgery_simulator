@@ -18,8 +18,8 @@ services:
   db:
     image: postgres:14
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: simulationdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123456789
+      POSTGRES_DB: user_db
     ports:
       - "5432:5432"

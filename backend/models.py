@@ -17,6 +17,7 @@ class User(Base):
     user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_name: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     user_email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    user_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     user_organization: Mapped[str] = mapped_column(String(255), nullable=True)
     user_password: Mapped[str] = mapped_column(String(255), nullable=False)
     patients: Mapped[List["Patient"]] = relationship("Patient", back_populates="user", cascade="all, delete-orphan")
