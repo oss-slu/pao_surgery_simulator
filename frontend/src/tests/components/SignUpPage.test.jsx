@@ -7,12 +7,13 @@ import userEvent from '@testing-library/user-event';
 import toast from 'react-hot-toast';
 import SignUpPage from '../../components/SignUpPage';
 import { clearAuthStorage, renderWithRouter } from '../test-utils';
+import { vi } from 'vitest';
 
 const API_BASE = 'http://127.0.0.1:5000';
 
 afterEach(() => {
   clearAuthStorage();
-  jest.restoreAllMocks();
+  vi.restoreAllMocks();
   toast.success.mockClear();
   toast.error.mockClear();
 });
@@ -21,8 +22,8 @@ test('renders signup form', () => {
   const { container } = renderWithRouter(
     <SignUpPage
       apiBase={API_BASE}
-      onSignupSuccess={jest.fn()}
-      onBackToLogin={jest.fn()}
+      onSignupSuccess={vi.fn()}
+      onBackToLogin={vi.fn()}
     />
   );
 
@@ -34,11 +35,11 @@ test('renders signup form', () => {
 
 test('successful signup calls API and returns to login', async () => {
   const user = userEvent.setup();
-  const onSignupSuccess = jest.fn();
-  const onBackToLogin = jest.fn();
+  const onSignupSuccess = vi.fn();
+  const onBackToLogin = vi.fn();
 
   // Match live POST /api/signup response: { message, id } (not user_id).
-  global.fetch = jest.fn().mockResolvedValue({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     status: 201,
     json: async () => ({

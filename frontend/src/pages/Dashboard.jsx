@@ -5,7 +5,7 @@ import Sidebar from "../components/Sidebar";
 import WelcomeSection from "../components/WelcomeSection";
 import UploadSection from "../components/UploadSection";
 
-const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000";
 
 /**
  * Dashboard page (route: /dashboard)

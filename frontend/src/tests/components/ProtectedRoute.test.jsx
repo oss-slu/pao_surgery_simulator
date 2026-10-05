@@ -10,6 +10,7 @@ import {
   seedAuthStorage,
   renderWithRouter,
 } from '../test-utils';
+import { vi } from 'vitest';
 
 afterEach(() => {
   clearAuthStorage();
