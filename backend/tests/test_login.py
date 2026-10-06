@@ -31,6 +31,7 @@ def _make_user(user_id=1, user_name="testuser", password="password123"):
     mock_user.user_id = user_id
     mock_user.user_name = user_name
     mock_user.user_password = generate_password_hash(password)
+    mock_user.user_verified = True
     return mock_user
 
 

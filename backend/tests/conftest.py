@@ -1,8 +1,11 @@
 """Shared pytest setup: stub heavy imports before app loads, share test client."""
 import sys
 from unittest.mock import MagicMock, patch
-
 import pytest
+import os 
+
+os.environ["SECRET_KEY"] = "test-secret-key"
+os.environ["MAIL_BACKEND"] = "console"
 
 # Must run before any test does "from app import app".
 # app.py imports vtk at module level; Windows Application Control may block the DLL.

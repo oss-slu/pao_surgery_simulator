@@ -13,8 +13,13 @@ from flask_cors import CORS
 from sqlalchemy import text
 from db import connect, initialize_db
 from models import User, Dicom, Label
+from dotenv import load_dotenv
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+
+load_dotenv()
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
 CORS(app)
 
 # Initialize database on startup
@@ -28,6 +33,14 @@ else:
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+VERIFY_TOKEN_MAX_AGE = 24 * 60 * 60
+
+def _verify_serializer():
+    return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="email-verify")
+
+def make_verification_token(user):
+    return _verify_serializer().dumps({"uid": user.user_id, "email": user.user_email})
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'dcm'
@@ -109,10 +122,38 @@ def user_login():
             if not check_password_hash(user.user_password, user_password):
                 return jsonify({"error": "Invalid password"}), 401
             elif not user.user_verified:
-                return jsonify({"error": "User not verified"}), 401
+                return jsonify({
+                    "error": "Please verify your email before logging in.",
+                    "code": "email_not_verified"
+                }), 403
             else:
                 return jsonify({"message": "Login successful", "user_id": user.user_id, "user_name": user.user_name}), 200
-            
+                
+@app.route("/api/verify_email", methods=["POST"])
+def verify_email():
+    data = request.get_json(silent=True)
+    token = data.get("token") if isinstance(data, dict) else None
+    if not isinstance(token, str) or not token:
+        return jsonify({"error": "Missing token"}), 400
+
+    try:
+        payload = _verify_serializer().loads(token, max_age=VERIFY_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({"error": "Verification link has expired", "code": "token_expired"}), 400
+    except BadSignature:
+        return jsonify({"error": "Invalid verification link", "code": "token_invalid"}), 400
+
+    try:
+        with connect() as db:
+            user = db.query(User).filter_by(user_id=payload.get("uid")).first()
+            if not user or user.user_email != payload.get("email"):
+                return jsonify({"error": "Invalid verification link", "code": "token_invalid"}), 400
+            user.user_verified = True
+        return jsonify({"message": "Email verified"}), 200
+    except Exception:
+        app.logger.exception("Failed to verify email")
+        return jsonify({"error": "An internal error has occurred"}), 500
+
 @app.route("/api/users/<int:user_id>/scans", methods=["GET"])
 def list_user_scans(user_id):
     """List database uploads and saved DICOM filenames for the requested user."""
