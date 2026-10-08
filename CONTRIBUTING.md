@@ -1,6 +1,6 @@
 # Contributing to PAO Surgery Simulator
 
-Thank you for your interest in contributing to the PAO Surgery Simulator project. We welcome contributions from the community, including bug reports, documentation improvements, feature ideas, and code changes.
+Thank you for your interest in contributing to the PAO Surgery Simulator project. We welcome contributions from the community, including bug reports, documentation improvements, feature ideas, and code fixes.
 
 This project is developed as an open-source educational and research tool for planning orthopedic surgical procedures. We value clear communication, respectful collaboration, and maintainable code.
 
@@ -21,13 +21,13 @@ Before you begin, please check existing issues and discussions to avoid duplicat
 
 ### Prerequisites
 
-You will need:
+Before working on the project, make sure the following tools are installed on your system:
 
 - Git
 - Python 3.x
 - Node.js and npm
+- PostgreSQL for the project database
 - SQLite for local development
-- PostgreSQL for project database setup
 - A code editor such as VS Code
 
 ### Local Setup
@@ -39,10 +39,10 @@ You will need:
    cd pao_surgery_simulator
    ```
 
-2. Create a feature branch:
+2. Create and switch to a new branch for your work:
 
    ```bash
-   git checkout -b <short-feature-name>
+   git checkout -b username/patch-name
    ```
 
 3. Set up the backend:
@@ -54,31 +54,41 @@ You will need:
    pip install -r requirements.txt
    ```
 
-4. Set up the frontend:
+4. Configure the database:
+
+   - Review the backend `database.ini` file and update the values as needed for your local setup.
+   - For testing, the defaults may be sufficient, but you should verify they match your environment.
+   - Create a PostgreSQL database using your preferred method (for example, pgAdmin or psql) and ensure the credentials align with your configuration.
+
+5. Set up the frontend:
+
+   Open a new terminal and run:
 
    ```bash
-   cd ../frontend
+   cd frontend
    npm install
    ```
 
-5. Review the project configuration and database settings before running the app.
-
 ### Running the Application
 
-Start the backend:
+1. Start your PostgreSQL database using your preferred method.
 
-```bash
-cd backend
-source venv/bin/activate
-python app.py
-```
+2. Start the backend server:
 
-Start the frontend in a separate terminal:
+   ```bash
+   cd backend
+   source venv/bin/activate
+   python app.py
+   ```
 
-```bash
-cd frontend
-npm start
-```
+3. In a separate terminal, start the frontend application:
+
+   ```bash
+   cd frontend
+   npm start
+   ```
+
+4. The application should now be running locally, with the frontend available in your browser.
 
 ## Workflow and Branching
 
@@ -145,30 +155,36 @@ python -m pytest -v
 ```
 
 To run a specific test file:
+
 ```bash
 python -m pytest tests/test_specific_module.py -v
 ```
 
 To run a specific test function:
+
 ```bash
 python -m pytest tests/test_module.py::test_function_name -v
 ```
 
-The -v flag provides verbose output showing each test result. You can omit it for a more compact summary.
+The `-v` flag provides verbose output showing each test result. You can omit it for a more compact summary.
 
 #### Frontend testing with npm
+
 The frontend uses Jest for testing React components. To run the frontend tests:
+
 ```bash
 cd frontend
 npm run test:ci
 ```
 
 Or to run tests in watch mode:
+
 ```bash
 npm test
 ```
 
 To run tests for a specific file or pattern:
+
 ```bash
 npm test -- test-file-pattern
 ```
@@ -216,7 +232,7 @@ Before filing a new issue, search existing issues to see whether the problem has
 
 ## Code of Conduct
 
-This project follows the Contributor Covenant Code of Conduct. Please read the CODE_OF_CONDUCT.md file before contributing.
+This project follows the Contributor Covenant Code of Conduct. Please read the `CODE_OF_CONDUCT.md` file before contributing.
 
 We expect all contributors to engage respectfully and constructively in all project interactions.
 
