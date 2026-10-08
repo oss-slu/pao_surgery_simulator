@@ -3,11 +3,15 @@ import toast from "react-hot-toast";
 import "./UploadSection.css";
 import VTKViewer from "./VTKViewer";
 
-function UploadSection({ apiBase, onBack, onUploadComplete }) {
+function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = null }) {
   const fileInputRef = useRef(null);
   const [files, setFiles] = useState([]);
-  const [uploadId, setUploadId] = useState(null);
-  const [renderUrl, setRenderUrl] = useState("");
+  const [uploadId, setUploadId] = useState(initialUploadId);
+  const [renderUrl, setRenderUrl] = useState(
+    initialUploadId
+      ? `${apiBase}/api/render_dicom/${encodeURIComponent(initialUploadId)}`
+      : ""
+  );
   const [uploading, setUploading] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [error, setError] = useState("");
