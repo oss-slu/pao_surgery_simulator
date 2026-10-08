@@ -563,6 +563,9 @@ def list_sessions():
         app.logger.exception("Failed to list sessions")
         return jsonify({"error": "Failed to list sessions"}), 500
 
+@app.route("/api/health", methods=["GET"])
+def health_check():
+    return jsonify({"message": "Surgery Simulator API is running"}), 200
 
 @app.errorhandler(404)
 def not_found(error):
