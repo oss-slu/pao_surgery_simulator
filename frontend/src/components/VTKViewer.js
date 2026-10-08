@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { sessionFetch } from '../sessionApi';
 import '@kitware/vtk.js/Rendering/Profiles/Volume';
 import vtkGenericRenderWindow from '@kitware/vtk.js/Rendering/Misc/GenericRenderWindow';
 import vtkVolume from '@kitware/vtk.js/Rendering/Core/Volume';
@@ -57,7 +58,7 @@ function VTKViewer({ modelUrl, label }) {
 
     const loadVolume = async () => {
       try {
-        const response = await fetch(modelUrl, { signal: controller.signal });
+        const response = await sessionFetch(modelUrl, { signal: controller.signal });
         if (!response.ok) throw new Error(`The render service returned ${response.status}.`);
 
         const reader = vtkXMLImageDataReader.newInstance();

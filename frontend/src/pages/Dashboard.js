@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import Sidebar from "../components/Sidebar";
 import WelcomeSection from "../components/WelcomeSection";
 import UploadSection from "../components/UploadSection";
+import { sessionFetch } from "../sessionApi";
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
 
@@ -37,7 +38,7 @@ function Dashboard() {
             setLoadingScans(true);
             setScansError("");
             try {
-                const response = await fetch(
+                const response = await sessionFetch(
                     `${API_BASE}/api/users/${encodeURIComponent(userId)}/scans`,
                     { signal: controller.signal }
                 );

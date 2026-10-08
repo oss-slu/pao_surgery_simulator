@@ -30,8 +30,21 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
         toast.error(message);
         return;
       }
-      localStorage.setItem("user_id", data.user_id); // ← store user_id
-      localStorage.setItem("user_name", data.user_name); // ← store user_name
+      if (
+        typeof data.session_token !== "string" || !data.session_token ||
+        !Number.isInteger(data.issued_at) || !Number.isInteger(data.expires_at) ||
+        data.expires_at - data.issued_at !== 3600
+      ) {
+        throw new Error("The server returned an invalid login session.");
+      }
+      const secure = window.location.protocol === "https:" ? "; Secure" : "";
+      const cookieOptions = `; Max-Age=3600; Path=/; SameSite=Lax${secure}`;
+      // JavaScript access is needed for the required JSON token transport.
+      document.cookie = `session_token=${encodeURIComponent(data.session_token)}${cookieOptions}`;
+      document.cookie = `session_expires_at=${data.expires_at}${cookieOptions}`;
+      // Existing pages still use these display/routing values until their auth update.
+      localStorage.setItem("user_id", data.user_id);
+      localStorage.setItem("user_name", data.user_name);
       onLoginSuccess(data.user_name);
     } catch (err) {
       const message = "Network error: " + err.message;
