@@ -101,9 +101,9 @@ We use a simple branch-based workflow:
 Suggested branch names:
 
 ```bash
-git checkout -b add-user-dashboard
-git checkout -b login-page-validation
-git checkout -b setup-guide-update
+git checkout -b username/add-user-dashboard
+git checkout -b username/login-page-validation
+git checkout -b username/setup-guide-update
 ```
 
 Keep commit messages clear and concise.
