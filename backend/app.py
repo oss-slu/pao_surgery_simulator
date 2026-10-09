@@ -15,7 +15,7 @@ from flask_cors import CORS
 from sqlalchemy import text
 from db import connect, initialize_db
 from models import User, Dicom, Label
-from session_tokens import create_session, validate_session, SessionAuthenticationError
+from session_tokens import create_session, validate_session, renew_session, revoke_session, SessionAuthenticationError
 
 app = Flask(__name__)
 CORS(app)
@@ -191,7 +191,48 @@ def user_login():
     except Exception:
         app.logger.exception("Failed to create login session")
         return jsonify({"error": "Unable to create login session"}), 500
-            
+
+@app.route("/api/logout", methods=["POST"])
+def user_logout():
+    try:
+        token = _request_session_token()
+        with connect() as db:
+            revoke_session(db, token)
+        response = jsonify({"message": "Logged out successfully"})
+        response.headers["Cache-Control"] = "no-store"
+        return response, 200
+    except SessionAuthenticationError as error:
+        response = jsonify({"error": str(error), "code": error.code})
+        response.headers["Cache-Control"] = "no-store"
+        return response, 401
+    except Exception:
+        app.logger.exception("Failed to revoke login session")
+        return jsonify({"error": "Unable to log out"}), 500
+
+@app.route("/api/session/refresh", methods=["POST"])
+def refresh_session():
+    try:
+        token = _request_session_token()
+        with connect() as db:
+            session = renew_session(db, token)
+            response_data = {
+                "session_token": session.token,
+                "issued_at": int(session.issued_at.timestamp()),
+                "expires_at": int(session.expires_at.timestamp()),
+            }
+        # Revocation and creation have committed together before responding.
+        response = jsonify(response_data)
+        response.headers["Cache-Control"] = "no-store"
+        return response, 200
+    except SessionAuthenticationError as error:
+        response = jsonify({"error": str(error), "code": error.code})
+        response.headers["Cache-Control"] = "no-store"
+        return response, 401
+    except Exception:
+        app.logger.exception("Failed to renew login session")
+        return jsonify({"error": "Unable to renew session"}), 500
+
+
 @app.route("/api/users/<int:user_id>/scans", methods=["GET", "POST"])
 @require_session
 def list_user_scans(user_id):
@@ -519,9 +560,14 @@ def render_dicom_metadata(upload_id):
         rows = int(ds.Rows) if hasattr(ds, "Rows") else None
         columns = int(ds.Columns) if hasattr(ds, "Columns") else None
 
-        pixel_spacing = getattr(ds, "PixelSpacing", [None, None])
-        slice_thickness = getattr(ds, "SliceThickness", None)
-
+        # Convert pydicom MultiValue/DS values to native JSON-compatible numbers.
+        pixel_spacing = [
+            float(value) if value is not None else None
+            for value in getattr(ds, "PixelSpacing", [None, None])
+        ]
+        raw_slice_thickness = getattr(ds, "SliceThickness", None)
+        slice_thickness = float(raw_slice_thickness) if raw_slice_thickness is not None else None
+        
         spacing_between_slices = None
         if hasattr(ds, "SpacingBetweenSlices"):
             spacing_between_slices = float(ds.SpacingBetweenSlices)

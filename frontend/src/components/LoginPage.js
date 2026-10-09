@@ -2,13 +2,19 @@ import React, { useState } from "react";
 import toast from "react-hot-toast";
 import "./LoginPage.css";
 import { useNavigate } from "react-router-dom";
+import { storeSession } from "../sessionApi";
 
 function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+      const reason = new URLSearchParams(window.location.search).get("reason");
+      if (reason === "expired") return "Your session expired. Please log in again.";
+      if (reason === "required") return "Please log in again to continue.";
+      return "";
+    });
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -30,18 +36,7 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
         toast.error(message);
         return;
       }
-      if (
-        typeof data.session_token !== "string" || !data.session_token ||
-        !Number.isInteger(data.issued_at) || !Number.isInteger(data.expires_at) ||
-        data.expires_at - data.issued_at !== 3600
-      ) {
-        throw new Error("The server returned an invalid login session.");
-      }
-      const secure = window.location.protocol === "https:" ? "; Secure" : "";
-      const cookieOptions = `; Max-Age=3600; Path=/; SameSite=Lax${secure}`;
-      // JavaScript access is needed for the required JSON token transport.
-      document.cookie = `session_token=${encodeURIComponent(data.session_token)}${cookieOptions}`;
-      document.cookie = `session_expires_at=${data.expires_at}${cookieOptions}`;
+      storeSession(data);
       // Existing pages still use these display/routing values until their auth update.
       localStorage.setItem("user_id", data.user_id);
       localStorage.setItem("user_name", data.user_name);
