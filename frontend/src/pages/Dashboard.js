@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import Sidebar from "../components/Sidebar";
 import WelcomeSection from "../components/WelcomeSection";
 import UploadSection from "../components/UploadSection";
+import { sessionFetch, logoutSession } from "../sessionApi";
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
 
@@ -12,15 +13,15 @@ const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
  *
  * Wraps the existing Sidebar, WelcomeSection, and UploadSection components.
  * Reads the logged-in username from localStorage (set by Login page).
- * On logout, clears localStorage and navigates back to /login.
+  * On logout, revokes the backend session, clears cookies/account data, and returns to login.
  * 
  * Loads saved uploads on mount and adds successful new uploads to the list in memory.
  */
 function Dashboard() {
     const navigate = useNavigate();
     const [showUpload, setShowUpload] = useState(false);
+    const [username, setUsername] = useState("User"); /* Changed to fix the white screen issue */
     const [selectedUploadId, setSelectedUploadId] = useState(null);
-    const [username, setUsername] = useState("");
     const [scans, setScans] = useState([]);
     const [loadingScans, setLoadingScans] = useState(true);
     const [scansError, setScansError] = useState("");
@@ -38,7 +39,7 @@ function Dashboard() {
             setLoadingScans(true);
             setScansError("");
             try {
-                const response = await fetch(
+                const response = await sessionFetch(
                     `${API_BASE}/api/users/${encodeURIComponent(userId)}/scans`,
                     { signal: controller.signal }
                 );
@@ -107,14 +108,18 @@ function Dashboard() {
     }, []);
 
 
-    const handleLogout = () => {
-        localStorage.removeItem("user_name");
-        localStorage.removeItem("user_id");
-        toast.success("Logged out successfully");
-        navigate("/login", { replace: true });
+    const handleLogout = async () => {
+        try {
+            await logoutSession(API_BASE);
+            toast.success("Logged out successfully");
+            navigate("/login", { replace: true });
+        } catch (error) {
+            toast.error(error.message || "Unable to log out. Please try again.");
+        }
     };
 
-    if (!username) return null; // still resolving auth
+    /* Removed to fix the white screen issue */
+    //if (!username) return null; // still resolving auth
 
     return (
         <div className="app-shell">

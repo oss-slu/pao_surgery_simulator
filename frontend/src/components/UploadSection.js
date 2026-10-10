@@ -2,6 +2,7 @@ import React, { useRef, useState } from "react";
 import toast from "react-hot-toast";
 import "./UploadSection.css";
 import VTKViewer from "./VTKViewer";
+import { sessionFetch } from "../sessionApi";
 
 function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = null }) {
   const fileInputRef = useRef(null);
@@ -45,11 +46,9 @@ function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = nu
 
     const formData = new FormData();
     files.forEach((f) => formData.append("files", f));
-    const userId = localStorage.getItem("user_id");
-    if (userId) formData.append("user_id", userId);
 
     try {
-      const res = await fetch(`${apiBase}/api/upload_dicom`, {
+      const res = await sessionFetch(`${apiBase}/api/upload_dicom`, {
         method: "POST",
         body: formData,
       });
@@ -85,7 +84,7 @@ function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = nu
     setError("");
 
     try {
-      const url = `${apiBase}/api/render_dicom/${uploadId}`;
+      const url = `${apiBase}/api/render_dicom/${encodeURIComponent(uploadId)}`;
       setRenderUrl(url);
     } catch (err) {
       console.error(err);
@@ -104,10 +103,9 @@ function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = nu
 
     setLabelStatus("Sending label...");
     try {
-      const res = await fetch(`${apiBase}/api/scans/${uploadId}/labels`, {
+     const res = await sessionFetch(`${apiBase}/api/scans/${encodeURIComponent(uploadId)}/labels`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           name: "Demo anatomy point",
           description: "Temporary label sent from the upload page.",
           coordinates: { x: 12.5, y: 8.25, z: -4.75 },
@@ -115,7 +113,7 @@ function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = nu
           scan_2d_id: uploadId,
           scan_3d_id: uploadId,
           visible: true,
-        }),
+        },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Label request failed (${res.status})`);

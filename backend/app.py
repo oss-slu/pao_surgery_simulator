@@ -1,4 +1,6 @@
 import os
+import json
+from functools import wraps
 import uuid
 import pydicom 
 import numpy as np 
@@ -8,11 +10,12 @@ from PIL import Image
 from werkzeug.utils import secure_filename 
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file, send_from_directory, g
 from flask_cors import CORS
 from sqlalchemy import text
 from db import connect, initialize_db
 from models import User, Dicom, Label
+from session_tokens import create_session, validate_session, renew_session, revoke_session, SessionAuthenticationError
 
 app = Flask(__name__)
 CORS(app)
@@ -28,6 +31,70 @@ else:
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def _request_session_token():
+    data = request.get_json(silent=True)
+    if isinstance(data, dict) and "session_token" in data:
+        return data["session_token"]
+    # Multipart uploads can carry the token in a JSON metadata form field.
+    if request.mimetype == "multipart/form-data" and "metadata" in request.form:
+        try:
+            metadata = json.loads(request.form["metadata"])
+        except (TypeError, ValueError):
+            raise SessionAuthenticationError("SESSION_INVALID", "Invalid session metadata") from None
+        if not isinstance(metadata, dict):
+            raise SessionAuthenticationError("SESSION_INVALID", "Invalid session metadata")
+        if "session_token" in metadata:
+            return metadata["session_token"]
+    # Existing GET clients can use cookies; write/POST operations require JSON.
+    if request.method == "GET":
+        return request.cookies.get("session_token")
+    return None
+
+
+def require_session(view):
+    @wraps(view)
+    def authenticated_view(*args, **kwargs):
+        try:
+            token = _request_session_token()
+            with connect() as db:
+                authenticated = validate_session(db, token)
+        except SessionAuthenticationError as error:
+            app.logger.warning("Session authentication failed with code %s", error.code)
+            response = jsonify({"error": "Invalid or expired session", "code": error.code})
+            response.headers["Cache-Control"] = "no-store"
+            return response, 401
+        except Exception:
+            app.logger.exception("Failed to validate login session")
+            return jsonify({"error": "Unable to validate session"}), 500
+        g.authenticated_session = authenticated
+        g.user_id = authenticated.user_id
+        return view(*args, **kwargs)
+    return authenticated_view
+
+def require_scan_owner(view):
+    """Run after require_session, before accessing a scan's files or labels."""
+    @wraps(view)
+    def owned_scan_view(*args, **kwargs):
+        upload_id = kwargs.get("upload_id", kwargs.get("scan_id"))
+        # Do not authorize one ID and then sanitize it into another file path.
+        if not upload_id or upload_id != secure_filename(upload_id):
+            return jsonify({"error": "Invalid upload ID"}), 400
+        try:
+            with connect() as db:
+                scan = db.query(Dicom).filter_by(upload_id=upload_id).first()
+                if scan is None:
+                    return jsonify({"error": "Scan not found"}), 404
+                if scan.user_id != g.user_id:
+                    return jsonify({
+                        "error": "You do not have access to this scan",
+                        "code": "ACCESS_DENIED",
+                    }), 403
+        except Exception:
+            app.logger.exception("Failed to verify scan ownership")
+            return jsonify({"error": "Unable to verify scan ownership"}), 500
+        return view(*args, **kwargs)
+    return owned_scan_view
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'dcm'
@@ -101,19 +168,97 @@ def user_login():
     if not user_password:
         return jsonify({"error": "Missing Password"}), 400
     
-    with connect() as db:
-        user = db.query(User).filter_by(user_name=user_name).first()
-        if not user:
-            return jsonify({"error": "Invalid username"}), 401
-        else: 
+    try:
+        with connect() as db:
+            user = db.query(User).filter_by(user_name=user_name).first()
+            if not user:
+                return jsonify({"error": "Invalid username"}), 401
             if not check_password_hash(user.user_password, user_password):
                 return jsonify({"error": "Invalid password"}), 401
-            else:
-                return jsonify({"message": "Login successful", "user_id": user.user_id, "user_name": user.user_name}), 200
-            
-@app.route("/api/users/<int:user_id>/scans", methods=["GET"])
+
+            session = create_session(db, user.user_id)
+            response_data = {
+                "message": "Login successful",
+                "user_id": user.user_id,
+                "user_name": user.user_name,
+                "session_token": session.token,
+                "issued_at": int(session.issued_at.timestamp()),
+                "expires_at": int(session.expires_at.timestamp()),
+            }
+        # connect() commits before the response can expose the new token.
+        response = jsonify(response_data)
+        response.headers["Cache-Control"] = "no-store"
+        return response, 200
+    except Exception:
+        app.logger.exception("Failed to create login session")
+        return jsonify({"error": "Unable to create login session"}), 500
+
+@app.route("/api/logout", methods=["POST"])
+def user_logout():
+    try:
+        token = _request_session_token()
+        with connect() as db:
+            revoke_session(db, token)
+        response = jsonify({"message": "Logged out successfully"})
+        response.headers["Cache-Control"] = "no-store"
+        return response, 200
+    except SessionAuthenticationError as error:
+        safe_errors = {
+            "missing_session_token": "Session token is required",
+            "invalid_session_token": "Invalid session token",
+            "expired_session_token": "Session token expired",
+        }
+        response = jsonify({
+            "error": safe_errors.get(error.code, "Authentication failed"),
+            "code": error.code
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response, 401
+    except Exception:
+        app.logger.exception("Failed to revoke login session")
+        return jsonify({"error": "Unable to log out"}), 500
+
+@app.route("/api/session/refresh", methods=["POST"])
+def refresh_session():
+    try:
+        token = _request_session_token()
+        with connect() as db:
+            session = renew_session(db, token)
+            response_data = {
+                "session_token": session.token,
+                "issued_at": int(session.issued_at.timestamp()),
+                "expires_at": int(session.expires_at.timestamp()),
+            }
+        # Revocation and creation have committed together before responding.
+        response = jsonify(response_data)
+        response.headers["Cache-Control"] = "no-store"
+        return response, 200
+    except SessionAuthenticationError as error:
+        safe_errors = {
+            "missing_session_token": "Session token is required",
+            "invalid_session_token": "Invalid session token",
+            "expired_session_token": "Session token expired",
+        }
+        response = jsonify({
+            "error": safe_errors.get(error.code, "Authentication failed"),
+            "code": error.code
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response, 401
+    except Exception:
+        app.logger.exception("Failed to renew login session")
+        return jsonify({"error": "Unable to renew session"}), 500
+
+
+@app.route("/api/users/<int:user_id>/scans", methods=["GET", "POST"])
+@require_session
 def list_user_scans(user_id):
     """List database uploads and saved DICOM filenames for the requested user."""
+    if user_id != g.user_id:
+        return jsonify({
+            "error": "You do not have access to this user's scans",
+            "code": "ACCESS_DENIED",
+        }), 403
     try:
         with connect() as db:
             if db.query(User).filter_by(user_id=user_id).first() is None:
@@ -121,7 +266,7 @@ def list_user_scans(user_id):
 
             uploads = (
                 db.query(Dicom)
-                .filter_by(user_id=user_id)
+                .filter_by(user_id=g.user_id)
                 .order_by(Dicom.upload_date.desc(), Dicom.upload_id.asc())
                 .all()
             )
@@ -231,6 +376,7 @@ def numpy_volume_to_vtk_image(volume: np.ndarray, spacing):
     return image_data
 
 @app.route("/api/upload_dicom", methods=["POST"])
+@require_session
 def upload_dicom():
     if "files" not in request.files:
         return jsonify({"error": "No files part"}), 400
@@ -239,9 +385,8 @@ def upload_dicom():
     if not files:
         return jsonify({"error": "No files uploaded"}), 400
     
-    user_id = request.form.get("user_id")
-    if not user_id:
-        return jsonify({"error": "Missing user id"}), 400
+    # Ownership comes exclusively from the validated session.
+    user_id = g.user_id
 
     upload_id = str(uuid.uuid4())
     upload_path = os.path.join(UPLOAD_FOLDER, upload_id)
@@ -261,7 +406,7 @@ def upload_dicom():
     
     try:
         with connect() as db:
-            new_upload = Dicom(upload_id = upload_id, user_id = int(user_id))
+            new_upload = Dicom(upload_id = upload_id, user_id = user_id)
             db.add(new_upload)
             db.flush()
         return jsonify({
@@ -295,6 +440,8 @@ def _parse_coordinates(data):
         return None
 
 @app.route("/api/scans/<scan_id>/labels", methods=["POST"])
+@require_session
+@require_scan_owner
 def create_label(scan_id):
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
@@ -332,6 +479,9 @@ def create_label(scan_id):
         return jsonify({"error": "An internal error has occurred"}), 500
 
 @app.route("/api/scans/<scan_id>/labels", methods=["GET"])
+@app.route("/api/scans/<scan_id>/labels/list", methods=["POST"])
+@require_session
+@require_scan_owner
 def list_labels(scan_id):
     try:
         with connect() as db:
@@ -342,6 +492,8 @@ def list_labels(scan_id):
         return jsonify({"error": "An internal error has occurred"}), 500
 
 @app.route("/api/scans/<scan_id>/labels/<int:label_id>/toggle", methods=["PATCH"])
+@require_session
+@require_scan_owner
 def toggle_label(scan_id, label_id):
     try:
         with connect() as db:
@@ -355,7 +507,9 @@ def toggle_label(scan_id, label_id):
         app.logger.exception("Failed to toggle label visibility for scan_id=%s, label_id=%s", scan_id, label_id)
         return jsonify({"error": "An internal error has occurred"}), 500
 
-@app.route("/api/render_dicom/<upload_id>", methods=["GET"])
+@app.route("/api/render_dicom/<upload_id>", methods=["GET", "POST"])
+@require_session
+@require_scan_owner
 def render_dicom(upload_id):
     # 1. Sanitize the user input
     safe_upload_id = secure_filename(upload_id)
@@ -392,7 +546,9 @@ def render_dicom(upload_id):
     # 4. Use Flask's safe send_from_directory instead of send_file
     return send_from_directory(dicom_dir, output_filename, mimetype="application/octet-stream")
 
-@app.route("/api/render_dicom/<upload_id>/metadata", methods=["GET"])
+@app.route("/api/render_dicom/<upload_id>/metadata", methods=["GET", "POST"])
+@require_session
+@require_scan_owner
 def render_dicom_metadata(upload_id):
     """Extract physical dimensions and metadata from the DICOM series."""
 
@@ -421,9 +577,14 @@ def render_dicom_metadata(upload_id):
         rows = int(ds.Rows) if hasattr(ds, "Rows") else None
         columns = int(ds.Columns) if hasattr(ds, "Columns") else None
 
-        pixel_spacing = getattr(ds, "PixelSpacing", [None, None])
-        slice_thickness = getattr(ds, "SliceThickness", None)
-
+        # Convert pydicom MultiValue/DS values to native JSON-compatible numbers.
+        pixel_spacing = [
+            float(value) if value is not None else None
+            for value in getattr(ds, "PixelSpacing", [None, None])
+        ]
+        raw_slice_thickness = getattr(ds, "SliceThickness", None)
+        slice_thickness = float(raw_slice_thickness) if raw_slice_thickness is not None else None
+        
         spacing_between_slices = None
         if hasattr(ds, "SpacingBetweenSlices"):
             spacing_between_slices = float(ds.SpacingBetweenSlices)
@@ -511,7 +672,9 @@ def render_dicom_metadata(upload_id):
 
 
 
-@app.route("/api/download_dicom/<upload_id>", methods=["GET"])
+@app.route("/api/download_dicom/<upload_id>", methods=["GET", "POST"])
+@require_session
+@require_scan_owner
 def download_dicom(upload_id):
     safe_upload_id = secure_filename(upload_id)
     if not safe_upload_id:
@@ -545,17 +708,28 @@ def download_dicom(upload_id):
         return jsonify({"error": f"Failed to create ZIP archive: {e}"}), 500
 
 # for list of active upload sessions
-@app.route("/api/sessions", methods=["GET"])
+@app.route("/api/sessions", methods=["GET", "POST"])
+@require_session
 def list_sessions():
     try:
-        base_uploads = os.path.abspath(UPLOAD_FOLDER) 
+        base_uploads = os.path.realpath(UPLOAD_FOLDER)
         if not os.path.exists(base_uploads): 
             return jsonify({"sessions": []}), 200
-        
-        sessions = [
-            name for name in os.listdir(base_uploads)
-            if os.path.isdir(os.path.join(base_uploads, name))
-        ]
+
+        with connect() as db:
+            owned_uploads = db.query(Dicom).filter_by(user_id=g.user_id).all()
+            sessions = []
+            for upload in owned_uploads:
+                upload_id = upload.upload_id
+                if not upload_id or upload_id != secure_filename(upload_id):
+                    continue
+                upload_path = os.path.realpath(os.path.join(base_uploads, upload_id))
+                if (
+                    upload_path != base_uploads
+                    and os.path.commonpath([base_uploads, upload_path]) == base_uploads
+                    and os.path.isdir(upload_path)
+                ):
+                    sessions.append(upload_id)
         
         return jsonify({"sessions": sessions}), 200
     

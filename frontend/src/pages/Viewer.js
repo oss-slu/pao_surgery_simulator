@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import VTKViewer from "../components/VTKViewer";
+import { sessionFetch } from "../sessionApi";
 
-const API_BASE = "http://127.0.0.1:5000";
+const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
 
 /**
  * Viewer page (route: /viewer/:uploadId)
@@ -11,7 +12,7 @@ const API_BASE = "http://127.0.0.1:5000";
  * passes it to the existing VTKViewer component.
  *
  * Model URL convention (matches backend):
- *   GET /api/uploads/<uploadId>/model  → returns the .vti file
+ *   POST /api/render_dicom/<uploadId> with session JSON returns the .vti file
  */
 function Viewer() {
     const { uploadId } = useParams();
@@ -23,10 +24,9 @@ function Viewer() {
     const sendDummyLabel = async () => {
         setLabelStatus("Sending label...");
         try {
-            const response = await fetch(`${API_BASE}/api/scans/${uploadId}/labels`, {
+            const response = await sessionFetch(`${API_BASE}/api/scans/${encodeURIComponent(uploadId)}/labels`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
+                body: {
                     name: "Demo anatomy point",
                     description: "Temporary label sent from the viewer.",
                     coordinates: { x: 12.5, y: 8.25, z: -4.75 },
@@ -34,7 +34,7 @@ function Viewer() {
                     scan_2d_id: uploadId,
                     scan_3d_id: uploadId,
                     visible: true,
-                }),
+                },
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || `Label request failed (${response.status})`);
@@ -47,7 +47,7 @@ function Viewer() {
 
     useEffect(() => {       
         // Construct the VTI model URL served by the Flask backend
-        setModelUrl(`${API_BASE}/api/uploads/${uploadId}/model`);
+        setModelUrl(`${API_BASE}/api/render_dicom/${encodeURIComponent(uploadId)}`);
     }, [uploadId, navigate]);
 
     return (
