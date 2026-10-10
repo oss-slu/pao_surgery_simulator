@@ -21,6 +21,7 @@ function Dashboard() {
     const navigate = useNavigate();
     const [showUpload, setShowUpload] = useState(false);
     const [username, setUsername] = useState("User"); /* Changed to fix the white screen issue */
+    const [selectedUploadId, setSelectedUploadId] = useState(null);
     const [scans, setScans] = useState([]);
     const [loadingScans, setLoadingScans] = useState(true);
     const [scansError, setScansError] = useState("");
@@ -88,6 +89,12 @@ function Dashboard() {
             ...previous,
         ]);
     };
+
+    const handleOpenScan = (scanId) => {
+        setSelectedUploadId(scanId);
+        setShowUpload(true);
+        toast.success("Previous upload reopened successfully");
+    };
     
     const handlePatientRename = (scanId, value) => {
         setScans((previous) => previous.map((scan) =>
@@ -125,14 +132,22 @@ function Dashboard() {
                 <div className="page-container">
                     {showUpload ? (
                         <UploadSection
+                            key={selectedUploadId || "new-upload"}
                             apiBase={API_BASE}
+                            initialUploadId={selectedUploadId}
                             onUploadComplete={handleUploadComplete}
-                            onBack={() => setShowUpload(false)}
+                            onBack={() => {
+                                setSelectedUploadId(null);
+                                setShowUpload(false);
+                            }}
                         />
                     ) : (
                         <WelcomeSection
                             username={username}
-                            onUploadClick={() => setShowUpload(true)}
+                            onUploadClick={() => {
+                                setSelectedUploadId(null);
+                                setShowUpload(true);
+                            }}
                         />
                     )}
                     {!showUpload && <section
@@ -166,6 +181,7 @@ function Dashboard() {
                                         <th scope="col" style={cellStyle}>Upload ID</th>
                                         <th scope="col" style={cellStyle}>Date Added</th>
                                         <th scope="col" style={cellStyle}>Patient Name</th>
+                                        <th scope="col" style={cellStyle}>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -193,6 +209,16 @@ function Dashboard() {
                                                     label={`Patient name for ${scan.id}`}
                                                     onSave={(value) => handlePatientRename(scan.id, value)}
                                                 />
+                                            </td>
+                                            <td style={cellStyle}>
+                                                <button
+                                                    type="button"
+                                                    className="primary-btn"
+                                                    aria-label={`Open scan ${scan.id}`}
+                                                    onClick={() => handleOpenScan(scan.id)}
+                                                >
+                                                    Open scan
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}
