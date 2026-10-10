@@ -60,7 +60,8 @@ def require_session(view):
             with connect() as db:
                 authenticated = validate_session(db, token)
         except SessionAuthenticationError as error:
-            response = jsonify({"error": str(error), "code": error.code})
+            app.logger.warning("Session authentication failed with code %s", error.code)
+            response = jsonify({"error": "Invalid or expired session", "code": error.code})
             response.headers["Cache-Control"] = "no-store"
             return response, 401
         except Exception:
@@ -202,7 +203,15 @@ def user_logout():
         response.headers["Cache-Control"] = "no-store"
         return response, 200
     except SessionAuthenticationError as error:
-        response = jsonify({"error": str(error), "code": error.code})
+        safe_errors = {
+            "missing_session_token": "Session token is required",
+            "invalid_session_token": "Invalid session token",
+            "expired_session_token": "Session token expired",
+        }
+        response = jsonify({
+            "error": safe_errors.get(error.code, "Authentication failed"),
+            "code": error.code
+        })
         response.headers["Cache-Control"] = "no-store"
         return response, 401
     except Exception:
@@ -225,7 +234,15 @@ def refresh_session():
         response.headers["Cache-Control"] = "no-store"
         return response, 200
     except SessionAuthenticationError as error:
-        response = jsonify({"error": str(error), "code": error.code})
+        safe_errors = {
+            "missing_session_token": "Session token is required",
+            "invalid_session_token": "Invalid session token",
+            "expired_session_token": "Session token expired",
+        }
+        response = jsonify({
+            "error": safe_errors.get(error.code, "Authentication failed"),
+            "code": error.code
+        })
         response.headers["Cache-Control"] = "no-store"
         return response, 401
     except Exception:
