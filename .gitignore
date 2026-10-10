@@ -87,6 +87,7 @@ docker-compose.override.yml
 .docker/
 docker-compose.*.local
 
+pao_deploy_key
 
 .husky/_/
 .aws/
