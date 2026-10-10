@@ -1,0 +1,162 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+  pages: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frontend:
+    name: Deploy frontend to GitHub Pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure frontend deployment
+        run: |
+          if [ -z "${PUBLIC_URL}" ]; then
+            echo "PUBLIC_URL=/${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
+          fi
+          if [ -z "${REACT_APP_API_BASE}" ]; then
+            echo "REACT_APP_API_BASE repository variable is required for deployed builds." >&2
+            exit 1
+          fi
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+          REACT_APP_API_BASE: ${{ vars.REACT_APP_API_BASE }}
+
+      - name: Run frontend tests
+        run: npm run test:ci
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          REACT_APP_API_BASE: ${{ vars.REACT_APP_API_BASE }}
+
+      - name: Add single-page app fallback
+        run: cp build/index.html build/404.html
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/build
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  backend:
+    name: Publish backend image
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set image name
+        id: image
+        run: |
+          image_owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${image_owner}/pao-surgery-simulator-backend"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: |
+            ${{ steps.image.outputs.image }}:${{ github.sha }}
+            ${{ steps.image.outputs.image }}:latest
+
+  server:
+    name: Deploy backend and database
+    runs-on: ubuntu-latest
+    needs: backend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Create deployment directory
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_SSH_PORT || 22 }}
+          script: mkdir -p "${{ vars.SERVER_DEPLOY_PATH || '/opt/pao_surgery_simulator' }}"
+
+      - name: Copy production compose file
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_SSH_PORT || 22 }}
+          source: deploy/docker-compose.production.yml
+          target: ${{ vars.SERVER_DEPLOY_PATH || '/opt/pao_surgery_simulator' }}
+          strip_components: 1
+
+      - name: Start backend and database
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_SSH_PORT || 22 }}
+          script: |
+            set -e
+            cd "${{ vars.SERVER_DEPLOY_PATH || '/opt/pao_surgery_simulator' }}"
+            cat > .env <<'ENV'
+            BACKEND_IMAGE=${{ needs.backend.outputs.image }}:${{ github.sha }}
+            BACKEND_PORT=${{ vars.BACKEND_PORT || 5000 }}
+            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            ENV
+            docker login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+            docker compose -f docker-compose.production.yml pull
+            docker compose -f docker-compose.production.yml up -d --remove-orphans
+            docker image prune -f
