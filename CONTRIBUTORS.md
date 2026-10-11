@@ -2,7 +2,8 @@ Current Tech Lead:** Cole Patrick (https://github.com/colepatrick) (https://www.
 
 Current Developers: 
 - Seth Senecal (https://github.com/ssenecal1)
-
+- Adrian Wehlen (https://github.com/AdrianWehlen)
+- 
 Past Developers:
 - Sri Ram Duvvuri (alumni, prior tech lead) (https://github.com/sriram1302)
   
