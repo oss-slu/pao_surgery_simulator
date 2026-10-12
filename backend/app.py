@@ -215,6 +215,47 @@ def user_login():
         return jsonify({"error": "Unable to create login session"}), 500
 
 
+@app.route("/api/verify_email", methods=["POST"])
+def verify_email():
+    data = request.get_json(silent=True)
+    token = data.get("token") if isinstance(data, dict) else None
+    if not isinstance(token, str) or not token:
+        return jsonify({"error": "Missing token"}), 400
+
+    try:
+        payload = _verify_serializer().loads(token, max_age=VERIFY_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({
+            "error": "Verification link has expired",
+            "code": "token_expired",
+        }), 400
+    except BadSignature:
+        return jsonify({
+            "error": "Invalid verification link",
+            "code": "token_invalid",
+        }), 400
+
+    if not isinstance(payload, dict):
+        return jsonify({
+            "error": "Invalid verification link",
+            "code": "token_invalid",
+        }), 400
+
+    try:
+        with connect() as db:
+            user = db.query(User).filter_by(user_id=payload.get("uid")).first()
+            if not user or user.user_email != payload.get("email"):
+                return jsonify({
+                    "error": "Invalid verification link",
+                    "code": "token_invalid",
+                }), 400
+            user.user_verified = True
+        return jsonify({"message": "Email verified"}), 200
+    except Exception:
+        app.logger.exception("Failed to verify email")
+        return jsonify({"error": "An internal error has occurred"}), 500
+
+
 @app.route("/api/logout", methods=["POST"])
 def user_logout():
     try:
@@ -773,4 +814,3 @@ def internal_error(error):
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
-

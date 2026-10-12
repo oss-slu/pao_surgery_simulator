@@ -41,6 +41,9 @@ test('successful login stores user_id and user_name', async () => {
       message: 'Login successful',
       user_id: 7,
       user_name: 'testuser',
+      session_token: 'test-session-token',
+      issued_at: 1_800_000_000,
+      expires_at: 1_800_003_600,
     }),
   });
 

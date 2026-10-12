@@ -47,7 +47,10 @@ test('opens a saved scan in the dashboard upload screen for rendering', async ()
   await waitFor(() => {
     expect(global.fetch).toHaveBeenCalledWith(
       `${API_BASE}/api/users/9/scans`,
-      expect.objectContaining({ signal: expect.any(AbortSignal) })
+      expect.objectContaining({
+        method: 'POST',
+        signal: expect.any(AbortSignal),
+      })
     );
   });
 });

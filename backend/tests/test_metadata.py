@@ -7,27 +7,27 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 
 
-def test_metadata_invalid_upload_id(client):
-    response = client.get("/api/render_dicom/../metadata")
+def test_metadata_invalid_upload_id(authenticated_client):
+    response = authenticated_client.get("/api/render_dicom/../metadata")
 
     assert response.status_code == 400
     assert response.get_json()["error"] == "Invalid upload ID"
 
 
-def test_metadata_upload_not_found(client, tmp_path):
+def test_metadata_upload_not_found(authenticated_client, tmp_path):
     with patch("app.UPLOAD_FOLDER", str(tmp_path)):
-        response = client.get("/api/render_dicom/missing-id/metadata")
+        response = authenticated_client.get("/api/render_dicom/missing-id/metadata")
 
     assert response.status_code == 404
     assert response.get_json()["error"] == "Upload ID not found"
 
 
-def test_metadata_no_dcm_files(client, tmp_path):
+def test_metadata_no_dcm_files(authenticated_client, tmp_path):
     upload_id = "empty-series"
     (tmp_path / upload_id).mkdir()
 
     with patch("app.UPLOAD_FOLDER", str(tmp_path)):
-        response = client.get(f"/api/render_dicom/{upload_id}/metadata")
+        response = authenticated_client.get(f"/api/render_dicom/{upload_id}/metadata")
 
     assert response.status_code == 404
     assert response.get_json()["error"] == "No DICOM files found"
@@ -60,7 +60,7 @@ def _mock_dataset():
 
 
 @patch("app.pydicom.dcmread")
-def test_metadata_success(mock_dcmread, client, tmp_path):
+def test_metadata_success(mock_dcmread, authenticated_client, tmp_path):
     upload_id = "meta-ok"
     dicom_dir = tmp_path / upload_id
     dicom_dir.mkdir()
@@ -69,7 +69,7 @@ def test_metadata_success(mock_dcmread, client, tmp_path):
     mock_dcmread.return_value = _mock_dataset()
 
     with patch("app.UPLOAD_FOLDER", str(tmp_path)):
-        response = client.get(f"/api/render_dicom/{upload_id}/metadata")
+        response = authenticated_client.get(f"/api/render_dicom/{upload_id}/metadata")
 
     assert response.status_code == 200
     body = response.get_json()
@@ -80,14 +80,14 @@ def test_metadata_success(mock_dcmread, client, tmp_path):
 
 
 @patch("app.pydicom.dcmread", side_effect=RuntimeError("bad dicom"))
-def test_metadata_error(mock_dcmread, client, tmp_path):
+def test_metadata_error(mock_dcmread, authenticated_client, tmp_path):
     upload_id = "meta-err"
     dicom_dir = tmp_path / upload_id
     dicom_dir.mkdir()
     (dicom_dir / "slice.dcm").write_bytes(b"fake")
 
     with patch("app.UPLOAD_FOLDER", str(tmp_path)):
-        response = client.get(f"/api/render_dicom/{upload_id}/metadata")
+        response = authenticated_client.get(f"/api/render_dicom/{upload_id}/metadata")
 
     assert response.status_code == 500
     assert "Failed to extract metadata" in response.get_json()["error"]

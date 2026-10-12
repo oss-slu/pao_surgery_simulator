@@ -41,7 +41,7 @@ function Dashboard() {
             try {
                 const response = await sessionFetch(
                     `${API_BASE}/api/users/${encodeURIComponent(userId)}/scans`,
-                    { signal: controller.signal }
+                    { method: "POST", body: {}, signal: controller.signal }
                 );
                 if (!response.ok) {
                     throw new Error(`Unable to load saved scans (HTTP ${response.status}).`);

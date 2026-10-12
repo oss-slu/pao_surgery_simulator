@@ -34,7 +34,8 @@ def session_db(monkeypatch, tmp_path):
         for user_id in (1, 2):
             db.add(User(user_id=user_id, user_name=f"user{user_id}",
                         user_email=f"user{user_id}@example.com",
-                        user_password=generate_password_hash("password123")))
+                        user_password=generate_password_hash("password123"),
+                        user_verified=True))
         db.flush()
         db.add_all([Dicom(upload_id="owned", user_id=1),
                     Dicom(upload_id="foreign", user_id=2)])
