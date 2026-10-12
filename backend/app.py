@@ -16,8 +16,21 @@ from sqlalchemy import text
 from db import connect, initialize_db
 from models import User, Dicom, Label
 from session_tokens import create_session, validate_session, renew_session, revoke_session, SessionAuthenticationError
+from dotenv import load_dotenv
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+
+load_dotenv()
+
+def _require_secret_key():
+    secret_key = os.environ.get("SECRET_KEY", "").strip()
+    if not secret_key:
+        raise RuntimeError(
+            "SECRET_KEY is not set. Copy backend/.env.example to backend/.env and set SECRET_KEY."
+        )
+    return secret_key
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = _require_secret_key()
 CORS(app)
 
 # Initialize database on startup
@@ -95,6 +108,13 @@ def require_scan_owner(view):
             return jsonify({"error": "Unable to verify scan ownership"}), 500
         return view(*args, **kwargs)
     return owned_scan_view
+VERIFY_TOKEN_MAX_AGE = 24 * 60 * 60
+
+def _verify_serializer():
+    return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="email-verify")
+
+def make_verification_token(user):
+    return _verify_serializer().dumps({"uid": user.user_id, "email": user.user_email})
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'dcm'
@@ -145,7 +165,7 @@ def user_signup():
             if existing_email:
                 return jsonify({"error": "Email has been used"}), 400
 
-            new_user = User( user_name=user_name, user_email=user_email, user_organization=user_organization, user_password=user_password)
+            new_user = User( user_name=user_name, user_email=user_email, user_verified=False, user_organization=user_organization, user_password=user_password)
             db.add(new_user)
             db.flush()
             return jsonify({"message": "User Account", "id": new_user.user_id}), 201
@@ -158,21 +178,22 @@ def user_login():
     data = request.get_json()
     if not data:
         return jsonify({"error": "Missing data"}), 400
-    
+
     user_name = data.get("user_name") or data.get("username")
     user_password = data.get("user_password") or data.get("password")
 
     if not user_name:
         return jsonify({"error": "Missing Username"}), 400
-    
+
     if not user_password:
         return jsonify({"error": "Missing Password"}), 400
-    
+
     try:
         with connect() as db:
             user = db.query(User).filter_by(user_name=user_name).first()
             if not user:
                 return jsonify({"error": "Invalid username"}), 401
+
             if not check_password_hash(user.user_password, user_password):
                 return jsonify({"error": "Invalid password"}), 401
 
@@ -185,13 +206,14 @@ def user_login():
                 "issued_at": int(session.issued_at.timestamp()),
                 "expires_at": int(session.expires_at.timestamp()),
             }
-        # connect() commits before the response can expose the new token.
+
         response = jsonify(response_data)
         response.headers["Cache-Control"] = "no-store"
         return response, 200
     except Exception:
         app.logger.exception("Failed to create login session")
         return jsonify({"error": "Unable to create login session"}), 500
+
 
 @app.route("/api/logout", methods=["POST"])
 def user_logout():
@@ -218,6 +240,7 @@ def user_logout():
         app.logger.exception("Failed to revoke login session")
         return jsonify({"error": "Unable to log out"}), 500
 
+
 @app.route("/api/session/refresh", methods=["POST"])
 def refresh_session():
     try:
@@ -229,7 +252,7 @@ def refresh_session():
                 "issued_at": int(session.issued_at.timestamp()),
                 "expires_at": int(session.expires_at.timestamp()),
             }
-        # Revocation and creation have committed together before responding.
+
         response = jsonify(response_data)
         response.headers["Cache-Control"] = "no-store"
         return response, 200
@@ -248,8 +271,7 @@ def refresh_session():
     except Exception:
         app.logger.exception("Failed to renew login session")
         return jsonify({"error": "Unable to renew session"}), 500
-
-
+              
 @app.route("/api/users/<int:user_id>/scans", methods=["GET", "POST"])
 @require_session
 def list_user_scans(user_id):
@@ -259,6 +281,7 @@ def list_user_scans(user_id):
             "error": "You do not have access to this user's scans",
             "code": "ACCESS_DENIED",
         }), 403
+
     try:
         with connect() as db:
             if db.query(User).filter_by(user_id=user_id).first() is None:
@@ -291,7 +314,6 @@ def list_user_scans(user_id):
                             and allowed_file(entry.name)
                         )
                 except FileNotFoundError:
-                    # Keep the database record visible if its files were removed.
                     files = []
 
                 scans.append({
