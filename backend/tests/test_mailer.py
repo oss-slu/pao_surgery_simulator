@@ -1,7 +1,7 @@
 """Tests for the email verification pieces that exist today.
 
-Covers mailer.py (console vs SMTP backends, failures, verification link),
-signup creating unverified users, and login rejecting unverified users.
+Covers mailer.py (console vs SMTP backends, failures, verification link)
+and signup creating unverified users.
 SMTP and the DB are mocked; no real mail is sent and no Postgres is needed.
 """
 import logging
@@ -9,7 +9,6 @@ import smtplib
 from unittest.mock import patch, MagicMock
 
 import pytest
-from werkzeug.security import generate_password_hash
 
 from mailer import MailError, send_email, send_verification_email
 
@@ -133,7 +132,7 @@ def test_verification_email_expiry_matches_token_max_age(mock_send, monkeypatch)
     assert f"expires in {VERIFY_TOKEN_MAX_AGE // 3600} hours" in body
 
 
-# --- signup / login -----------------------------------------------------------
+# --- signup -------------------------------------------------------------------
 
 @patch("app.connect")
 def test_signup_creates_unverified_user(mock_connect, client):
@@ -151,45 +150,3 @@ def test_signup_creates_unverified_user(mock_connect, client):
     assert response.status_code == 201
     new_user = mock_db.add.call_args[0][0]
     assert new_user.user_verified is False
-
-
-def _mock_db_with_user(mock_connect, user):
-    mock_db = MagicMock()
-    mock_db.query.return_value.filter_by.return_value.first.return_value = user
-    mock_connect.return_value.__enter__.return_value = mock_db
-    return mock_db
-
-
-def _make_unverified_user(password="password123"):
-    user = MagicMock()
-    user.user_id = 1
-    user.user_name = "testuser"
-    user.user_password = generate_password_hash(password)
-    user.user_verified = False
-    return user
-
-
-@patch("app.connect")
-def test_login_rejects_unverified_user(mock_connect, client):
-    _mock_db_with_user(mock_connect, _make_unverified_user())
-
-    response = client.post("/api/login", json={
-        "user_name": "testuser",
-        "user_password": "password123",
-    })
-
-    assert response.status_code == 403
-    assert response.get_json()["code"] == "email_not_verified"
-
-
-@patch("app.connect")
-def test_login_unverified_wrong_password_reports_password_first(mock_connect, client):
-    _mock_db_with_user(mock_connect, _make_unverified_user())
-
-    response = client.post("/api/login", json={
-        "user_name": "testuser",
-        "user_password": "wrongpassword123",
-    })
-
-    assert response.status_code == 401
-    assert response.get_json()["error"] == "Invalid password"

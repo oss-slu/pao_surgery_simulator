@@ -7,7 +7,6 @@ import time
 from unittest.mock import patch, MagicMock
 
 from itsdangerous import URLSafeTimedSerializer
-from werkzeug.security import generate_password_hash
 
 from app import app, make_verification_token, VERIFY_TOKEN_MAX_AGE
 
@@ -202,22 +201,3 @@ def test_verify_email_db_failure_returns_generic_500(mock_connect, client):
     assert response.status_code == 500
     assert response.get_json() == {"error": "An internal error has occurred"}
     assert "10.0.0.5" not in response.get_data(as_text=True)
-
-
-@patch("app.connect")
-def test_verify_then_login_succeeds(mock_connect, client):
-    user = _make_user()
-    user.user_name = "testuser"
-    user.user_password = generate_password_hash("password123")
-    _mock_db_with_user(mock_connect, user)
-    credentials = {"user_name": "testuser", "user_password": "password123"}
-
-    before = client.post("/api/login", json=credentials)
-    verify = _post_token(client, make_verification_token(user))
-    after = client.post("/api/login", json=credentials)
-
-    assert before.status_code == 403
-    assert before.get_json()["code"] == "email_not_verified"
-    assert verify.status_code == 200
-    assert after.status_code == 200
-    assert after.get_json()["user_id"] == user.user_id

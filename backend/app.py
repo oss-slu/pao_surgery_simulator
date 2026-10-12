@@ -18,8 +18,16 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 load_dotenv()
 
+def _require_secret_key():
+    secret_key = os.environ.get("SECRET_KEY", "").strip()
+    if not secret_key:
+        raise RuntimeError(
+            "SECRET_KEY is not set. Copy backend/.env.example to backend/.env and set SECRET_KEY."
+        )
+    return secret_key
+
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
+app.config["SECRET_KEY"] = _require_secret_key()
 CORS(app)
 
 # Initialize database on startup
@@ -91,7 +99,7 @@ def user_signup():
             if existing_email:
                 return jsonify({"error": "Email has been used"}), 400
 
-            new_user = User( user_name=user_name, user_email=user_email,user_verified=False, user_organization=user_organization, user_password=user_password)
+            new_user = User( user_name=user_name, user_email=user_email, user_verified=False, user_organization=user_organization, user_password=user_password)
             db.add(new_user)
             db.flush()
             return jsonify({"message": "User Account", "id": new_user.user_id}), 201
@@ -121,14 +129,9 @@ def user_login():
         else: 
             if not check_password_hash(user.user_password, user_password):
                 return jsonify({"error": "Invalid password"}), 401
-            elif not user.user_verified:
-                return jsonify({
-                    "error": "Please verify your email before logging in.",
-                    "code": "email_not_verified"
-                }), 403
             else:
                 return jsonify({"message": "Login successful", "user_id": user.user_id, "user_name": user.user_name}), 200
-                
+            
 @app.route("/api/verify_email", methods=["POST"])
 def verify_email():
     data = request.get_json(silent=True)
