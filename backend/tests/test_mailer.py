@@ -121,6 +121,18 @@ def test_send_verification_email_builds_link(mock_send, monkeypatch):
     assert "24 hours" in body
 
 
+@patch("mailer.send_email")
+def test_verification_email_expiry_matches_token_max_age(mock_send, monkeypatch):
+    from app import VERIFY_TOKEN_MAX_AGE
+
+    monkeypatch.setenv("FRONTEND_URL", "https://app.example.com")
+
+    send_verification_email("user@example.com", "abc123")
+
+    body = mock_send.call_args[0][2]
+    assert f"expires in {VERIFY_TOKEN_MAX_AGE // 3600} hours" in body
+
+
 # --- signup / login -----------------------------------------------------------
 
 @patch("app.connect")
