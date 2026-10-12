@@ -1,17 +1,23 @@
 /**
  * Shared helpers for component tests.
- * Auth in this app is localStorage-only (user_id / user_name) — not server sessions.
+ * Seed a valid local display identity and backend session cookie for protected routes.
  */
 import React from 'react';
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { clearSession, storeSession } from '../sessionApi';
 
 export function clearAuthStorage() {
-  localStorage.removeItem('user_id');
-  localStorage.removeItem('user_name');
+  clearSession();
 }
 
 export function seedAuthStorage({ userId = '1', userName = 'testuser' } = {}) {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  storeSession({
+    session_token: 'test-session-token',
+    issued_at: issuedAt,
+    expires_at: issuedAt + 3600,
+  });
   localStorage.setItem('user_id', String(userId));
   localStorage.setItem('user_name', userName);
 }
