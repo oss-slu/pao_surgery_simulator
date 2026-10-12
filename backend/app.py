@@ -13,8 +13,21 @@ from flask_cors import CORS
 from sqlalchemy import text
 from db import connect, initialize_db
 from models import User, Dicom, Label
+from dotenv import load_dotenv
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+
+load_dotenv()
+
+def _require_secret_key():
+    secret_key = os.environ.get("SECRET_KEY", "").strip()
+    if not secret_key:
+        raise RuntimeError(
+            "SECRET_KEY is not set. Copy backend/.env.example to backend/.env and set SECRET_KEY."
+        )
+    return secret_key
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = _require_secret_key()
 CORS(app)
 
 # Initialize database on startup
@@ -28,6 +41,14 @@ else:
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+VERIFY_TOKEN_MAX_AGE = 24 * 60 * 60
+
+def _verify_serializer():
+    return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="email-verify")
+
+def make_verification_token(user):
+    return _verify_serializer().dumps({"uid": user.user_id, "email": user.user_email})
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'dcm'
@@ -78,7 +99,7 @@ def user_signup():
             if existing_email:
                 return jsonify({"error": "Email has been used"}), 400
 
-            new_user = User( user_name=user_name, user_email=user_email, user_organization=user_organization, user_password=user_password)
+            new_user = User( user_name=user_name, user_email=user_email, user_verified=False, user_organization=user_organization, user_password=user_password)
             db.add(new_user)
             db.flush()
             return jsonify({"message": "User Account", "id": new_user.user_id}), 201
@@ -111,6 +132,31 @@ def user_login():
             else:
                 return jsonify({"message": "Login successful", "user_id": user.user_id, "user_name": user.user_name}), 200
             
+@app.route("/api/verify_email", methods=["POST"])
+def verify_email():
+    data = request.get_json(silent=True)
+    token = data.get("token") if isinstance(data, dict) else None
+    if not isinstance(token, str) or not token:
+        return jsonify({"error": "Missing token"}), 400
+
+    try:
+        payload = _verify_serializer().loads(token, max_age=VERIFY_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({"error": "Verification link has expired", "code": "token_expired"}), 400
+    except BadSignature:
+        return jsonify({"error": "Invalid verification link", "code": "token_invalid"}), 400
+
+    try:
+        with connect() as db:
+            user = db.query(User).filter_by(user_id=payload.get("uid")).first()
+            if not user or user.user_email != payload.get("email"):
+                return jsonify({"error": "Invalid verification link", "code": "token_invalid"}), 400
+            user.user_verified = True
+        return jsonify({"message": "Email verified"}), 200
+    except Exception:
+        app.logger.exception("Failed to verify email")
+        return jsonify({"error": "An internal error has occurred"}), 500
+
 @app.route("/api/users/<int:user_id>/scans", methods=["GET"])
 def list_user_scans(user_id):
     """List database uploads and saved DICOM filenames for the requested user."""
