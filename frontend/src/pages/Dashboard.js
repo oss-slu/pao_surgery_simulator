@@ -21,7 +21,6 @@ function Dashboard() {
     const navigate = useNavigate();
     const [showUpload, setShowUpload] = useState(false);
     const [username, setUsername] = useState("User"); /* Changed to fix the white screen issue */
-    const [selectedUploadId, setSelectedUploadId] = useState(null);
     const [scans, setScans] = useState([]);
     const [loadingScans, setLoadingScans] = useState(true);
     const [scansError, setScansError] = useState("");
@@ -79,21 +78,23 @@ function Dashboard() {
         const addedAt = upload.addedAt || new Date().toISOString();
         const patientName = typeof upload.patientName === "string"
             ? upload.patientName.trim() : "";
-        setScans((previous) => [
-            {
-                id: upload.uploadId,
-                patientName: patientName || "patient_name",
-                addedAt,
-                files: [...fileNames],
-            },
-            ...previous,
-        ]);
+        if (upload.uploadId) {
+            setScans((previous) => [
+                {
+                    id: upload.uploadId,
+                    patientName: patientName || "patient_name",
+                    addedAt,
+                    files: [...fileNames],
+                },
+                ...previous,
+            ]);
+            navigate(`/viewer/${encodeURIComponent(upload.uploadId)}`);
+        }
     };
 
     const handleOpenScan = (scanId) => {
-        setSelectedUploadId(scanId);
-        setShowUpload(true);
         toast.success("Previous upload reopened successfully");
+        navigate(`/viewer/${encodeURIComponent(scanId)}`);
     };
     
     const handlePatientRename = (scanId, value) => {
@@ -132,22 +133,14 @@ function Dashboard() {
                 <div className="page-container">
                     {showUpload ? (
                         <UploadSection
-                            key={selectedUploadId || "new-upload"}
                             apiBase={API_BASE}
-                            initialUploadId={selectedUploadId}
                             onUploadComplete={handleUploadComplete}
-                            onBack={() => {
-                                setSelectedUploadId(null);
-                                setShowUpload(false);
-                            }}
+                            onBack={() => setShowUpload(false)}
                         />
                     ) : (
                         <WelcomeSection
                             username={username}
-                            onUploadClick={() => {
-                                setSelectedUploadId(null);
-                                setShowUpload(true);
-                            }}
+                            onUploadClick={() => setShowUpload(true)}
                         />
                     )}
                     {!showUpload && <section

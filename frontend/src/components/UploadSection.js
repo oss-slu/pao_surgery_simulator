@@ -1,23 +1,13 @@
 import React, { useRef, useState } from "react";
 import toast from "react-hot-toast";
 import "./UploadSection.css";
-import VTKViewer from "./VTKViewer";
 import { sessionFetch } from "../sessionApi";
 
-function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = null }) {
+function UploadSection({ apiBase, onBack, onUploadComplete }) {
   const fileInputRef = useRef(null);
   const [files, setFiles] = useState([]);
-  const [uploadId, setUploadId] = useState(initialUploadId);
-  const [renderUrl, setRenderUrl] = useState(
-    initialUploadId
-      ? `${apiBase}/api/render_dicom/${encodeURIComponent(initialUploadId)}`
-      : ""
-  );
   const [uploading, setUploading] = useState(false);
-  const [rendering, setRendering] = useState(false);
   const [error, setError] = useState("");
-  const [labelStatus, setLabelStatus] = useState("");
-  const [createdLabel, setCreatedLabel] = useState(null);
 
   const handleChooseFiles = () => {
     if (fileInputRef.current) {
@@ -28,11 +18,7 @@ function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = nu
   const handleFileChange = (e) => {
     const selected = Array.from(e.target.files || []);
     setFiles(selected);
-    setUploadId(null);
-    setRenderUrl("");
     setError("");
-    setLabelStatus("");
-    setCreatedLabel(null);
   };
 
   const handleUpload = async () => {
@@ -57,8 +43,10 @@ function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = nu
       if (!res.ok) {
         throw new Error(data.error || "Upload failed");
       }
+      if (typeof data.upload_id !== "string" || !data.upload_id) {
+        throw new Error("The upload response did not include a scan ID.");
+      }
 
-      setUploadId(data.upload_id);
       onUploadComplete?.(files.map((file) => file.name), {
         uploadId: data.upload_id,
         addedAt: new Date().toISOString(),
@@ -71,57 +59,6 @@ function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = nu
       toast.error(err.message || "Upload failed");
     } finally {
       setUploading(false);
-    }
-  };
-
-  const handleRender = () => {
-    if (!uploadId) {
-      toast.error("Upload a DICOM series before rendering.");
-      return;
-    }
-
-    setRendering(true);
-    setError("");
-
-    try {
-      const url = `${apiBase}/api/render_dicom/${encodeURIComponent(uploadId)}`;
-      setRenderUrl(url);
-    } catch (err) {
-      console.error(err);
-      setError("Failed to start rendering.");
-      toast.error("Failed to start rendering.");
-    } finally {
-      setRendering(false);
-    }
-  };
-
-  const handleSendDummyLabel = async () => {
-    if (!uploadId) {
-      toast.error("Upload a DICOM series before sending a label.");
-      return;
-    }
-
-    setLabelStatus("Sending label...");
-    try {
-     const res = await sessionFetch(`${apiBase}/api/scans/${encodeURIComponent(uploadId)}/labels`, {
-        method: "POST",
-        body: {
-          name: "Demo anatomy point",
-          description: "Temporary label sent from the upload page.",
-          coordinates: { x: 12.5, y: 8.25, z: -4.75 },
-          body_part_id: "demo-body-part",
-          scan_2d_id: uploadId,
-          scan_3d_id: uploadId,
-          visible: true,
-        },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Label request failed (${res.status})`);
-      setCreatedLabel(data);
-      setLabelStatus("Dummy label saved");
-    } catch (err) {
-      setLabelStatus(err.message);
-      toast.error(err.message || "Failed to send label");
     }
   };
 
@@ -159,24 +96,7 @@ function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = nu
         >
           {uploading ? "Uploading..." : "Upload"}
         </button>
-        <button
-          className="primary-btn"
-          onClick={handleRender}
-          disabled={!uploadId || rendering}
-        >
-          {rendering ? "Rendering..." : "Render 3D"}
-        </button>
-        <button
-          className="secondary-btn"
-          onClick={handleSendDummyLabel}
-          disabled={!uploadId}
-          type="button"
-        >
-          Send dummy label
-        </button>
       </div>
-
-      {labelStatus && <p role="status">{labelStatus}</p>}
 
       {files.length > 0 && (
         <div className="file-list">
@@ -190,14 +110,6 @@ function UploadSection({ apiBase, onBack, onUploadComplete, initialUploadId = nu
       )}
 
       {error && <p className="error-text">{error}</p>}
-
-      {renderUrl && (
-        <div className="rendered-image">
-          <h3>Interactive 3D Render</h3>
-          
-          <VTKViewer modelUrl={renderUrl} label={createdLabel} />
-        </div>
-      )}
     </div>
   );
 }
