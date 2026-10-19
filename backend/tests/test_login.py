@@ -40,7 +40,7 @@ def test_login_success(mock_connect, client):
     _mock_db_with_user(mock_connect, _make_user())
 
     response = client.post("/api/login", json={
-        "user_name": "testuser",
+        "user_email": "testuser@example.com",
         "user_password": "password123",
     })
 
@@ -53,7 +53,7 @@ def test_login_wrong_password(mock_connect, client):
     _mock_db_with_user(mock_connect, _make_user())
 
     response = client.post("/api/login", json={
-        "user_name": "testuser",
+        "user_email": "testuser@example.com",
         "user_password": "wrongpassword123",
     })
 
@@ -69,19 +69,19 @@ def test_login_missing_body(client):
 
 
 @patch("app.connect")
-def test_login_missing_username(mock_connect, client):
+def test_login_missing_email(mock_connect, client):
     response = client.post("/api/login", json={
         "user_password": "password123",
     })
 
     assert response.status_code == 400
-    assert response.get_json()["error"] == "Missing Username"
+    assert response.get_json()["error"] == "Missing Email"
 
 
 @patch("app.connect")
 def test_login_missing_password(mock_connect, client):
     response = client.post("/api/login", json={
-        "user_name": "testuser",
+        "user_email": "testuser@example.com",
     })
 
     assert response.status_code == 400
@@ -89,20 +89,20 @@ def test_login_missing_password(mock_connect, client):
 
 
 @patch("app.connect")
-def test_login_empty_username(mock_connect, client):
+def test_login_empty_email(mock_connect, client):
     response = client.post("/api/login", json={
-        "user_name": "",
+        "user_email": "",
         "user_password": "password123",
     })
 
     assert response.status_code == 400
-    assert response.get_json()["error"] == "Missing Username"
+    assert response.get_json()["error"] == "Missing Email"
 
 
 @patch("app.connect")
 def test_login_empty_password(mock_connect, client):
     response = client.post("/api/login", json={
-        "user_name": "testuser",
+        "user_email": "testuser@example.com",
         "user_password": "",
     })
 
@@ -111,25 +111,25 @@ def test_login_empty_password(mock_connect, client):
 
 
 @patch("app.connect")
-def test_login_invalid_username(mock_connect, client):
+def test_login_unknown_email(mock_connect, client):
     _mock_db_with_user(mock_connect, user=None)
 
     response = client.post("/api/login", json={
-        "user_name": "unknownuser",
+        "user_email": "unknown@example.com",
         "user_password": "password123",
     })
 
     assert response.status_code == 401
-    assert response.get_json()["error"] == "Invalid username"
+    assert response.get_json()["error"] == "Invalid email"
 
 
 @patch("app.connect")
 def test_login_alt_field_names(mock_connect, client):
-    # Route also accepts username/password aliases.
+    # Route also accepts email/password aliases.
     _mock_db_with_user(mock_connect, _make_user())
 
     response = client.post("/api/login", json={
-        "username": "testuser",
+        "email": "testuser@example.com",
         "password": "password123",
     })
 
@@ -142,7 +142,7 @@ def test_login_success_includes_message(mock_connect, client):
     _mock_db_with_user(mock_connect, _make_user())
 
     response = client.post("/api/login", json={
-        "user_name": "testuser",
+        "user_email": "testuser@example.com",
         "user_password": "password123",
     })
 

@@ -50,7 +50,7 @@ def session_db(monkeypatch, tmp_path):
 @pytest.fixture
 def issued(client, session_db):
     response = client.post("/api/login", json={
-        "user_name": "user1", "user_password": "password123"})
+        "user_email": "user1@example.com", "user_password": "password123"})
     assert response.status_code == 200
     return response.get_json()
 
@@ -78,7 +78,7 @@ def test_login_persists_identity_and_one_hour_lifetime(issued, session_db):
 
 def test_repeated_login_creates_distinct_tokens(client, issued, session_db):
     second = client.post("/api/login", json={
-        "user_name": "user1", "user_password": "password123"}).get_json()
+        "user_email": "user1@example.com", "user_password": "password123"}).get_json()
     assert second["session_token"] != issued["session_token"]
 
 
