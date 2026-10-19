@@ -34,6 +34,7 @@ test('successful login stores user_id and user_name', async () => {
   const user = userEvent.setup();
   const onLoginSuccess = jest.fn();
 
+  const issuedAt = Math.floor(Date.now() / 1000);
   // Fake network response shaped like Flask login success.
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
@@ -41,6 +42,9 @@ test('successful login stores user_id and user_name', async () => {
       message: 'Login successful',
       user_id: 7,
       user_name: 'testuser',
+      session_token: 'login-session-token',
+      issued_at: issuedAt,
+      expires_at: issuedAt + 3600,
     }),
   });
 
@@ -69,6 +73,7 @@ test('successful login stores user_id and user_name', async () => {
     );
   });
 
+  expect(document.cookie).toContain('session_token=login-session-token');
   expect(localStorage.getItem('user_id')).toBe('7');
   expect(localStorage.getItem('user_name')).toBe('testuser');
   expect(onLoginSuccess).toHaveBeenCalledWith('testuser');

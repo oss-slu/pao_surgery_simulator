@@ -1,5 +1,5 @@
 /**
- * ProtectedRoute only checks localStorage user_id (no JWT/cookie).
+ * ProtectedRoute requires a session cookie; the backend validates protected operations.
  */
 import React from 'react';
 import { screen } from '@testing-library/react';
@@ -32,16 +32,24 @@ function renderProtected() {
   );
 }
 
-test('redirects to login when user_id is missing', () => {
+test('redirects to login when the session cookie is missing', () => {
   clearAuthStorage();
   renderProtected();
   expect(screen.getByText('Login page')).toBeInTheDocument();
   expect(screen.queryByText('Protected content')).not.toBeInTheDocument();
 });
 
-test('renders children when user_id is present', () => {
+test('renders children when the session cookie is present', () => {
   seedAuthStorage({ userId: '42', userName: 'surgeon' });
   renderProtected();
   expect(screen.getByText('Protected content')).toBeInTheDocument();
   expect(screen.queryByText('Login page')).not.toBeInTheDocument();
+});
+
+ test('a stored user ID without a session cookie cannot open a protected page', () => {
+  clearAuthStorage();
+  localStorage.setItem('user_id', '42');
+  renderProtected();
+  expect(screen.getByText('Login page')).toBeInTheDocument();
+  expect(screen.queryByText('Protected content')).not.toBeInTheDocument();
 });

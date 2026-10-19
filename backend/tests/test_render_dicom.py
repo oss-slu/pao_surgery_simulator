@@ -7,16 +7,17 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 
 
-def test_render_invalid_upload_id(client):
-    response = client.get("/api/render_dicom/..")
+def test_render_invalid_upload_id(authenticated_client):
+    response = authenticated_client.get("/api/render_dicom/..")
 
     assert response.status_code == 400
     assert response.get_json()["error"] == "Invalid upload ID"
 
 
-def test_render_unknown_upload_id(client, tmp_path):
+def test_render_unknown_upload_id(authenticated_client, tmp_path):
+    authenticated_client.add_scan("missing-upload-id")
     with patch("app.UPLOAD_FOLDER", str(tmp_path)):
-        response = client.get("/api/render_dicom/missing-upload-id")
+        response = authenticated_client.get("/api/render_dicom/missing-upload-id")
 
     assert response.status_code == 404
     assert response.get_json()["error"] == "Upload ID not found"
@@ -25,8 +26,9 @@ def test_render_unknown_upload_id(client, tmp_path):
 @patch("app.numpy_volume_to_vtk_image")
 @patch("app.load_dicom_series_as_numpy")
 @patch("app.vtk")
-def test_render_success(mock_vtk, mock_load, mock_to_vtk, client, tmp_path):
+def test_render_success(mock_vtk, mock_load, mock_to_vtk, authenticated_client, tmp_path):
     upload_id = "abc123"
+    authenticated_client.add_scan(upload_id)
     dicom_dir = tmp_path / upload_id
     dicom_dir.mkdir()
 
@@ -44,7 +46,7 @@ def test_render_success(mock_vtk, mock_load, mock_to_vtk, client, tmp_path):
     mock_vtk.vtkXMLImageDataWriter.return_value = writer
 
     with patch("app.UPLOAD_FOLDER", str(tmp_path)):
-        response = client.get(f"/api/render_dicom/{upload_id}")
+        response = authenticated_client.get(f"/api/render_dicom/{upload_id}")
 
     assert response.status_code == 200
     assert response.mimetype == "application/octet-stream"

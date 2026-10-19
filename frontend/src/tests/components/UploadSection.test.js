@@ -85,7 +85,8 @@ test('successful upload posts FormData and calls onUploadComplete', async () => 
 
   const [, options] = global.fetch.mock.calls[0];
   expect(options.body).toBeInstanceOf(FormData);
-  expect(options.body.get('user_id')).toBe('9');
+    expect(options.body.has('user_id')).toBe(false);
+  expect(JSON.parse(options.body.get('metadata')).session_token).toBe('test-session-token');
   expect(options.body.get('files')).toBeInstanceOf(File);
   expect(options.body.get('files').name).toBe('scan.dcm');
 
