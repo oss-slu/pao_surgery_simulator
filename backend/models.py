@@ -70,6 +70,7 @@ class Dicom(Base):
     __tablename__ = "dicom_uploads"
     upload_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)
+    patient_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     upload_date: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     user: Mapped["User"] = relationship("User", back_populates="dicom_uploads")
     labels: Mapped[List["Label"]] = relationship("Label", back_populates="scan", cascade="all, delete-orphan")
