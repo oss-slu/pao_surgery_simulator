@@ -2,6 +2,7 @@ Current Tech Lead:** Cole Patrick [<img src="/img/github.svg" alt="github" width
 
 Current Developers: 
 Seth Senecal (https://github.com/ssenecal1)
+Dylan Reyes (https://github.com/DylAstralith)
 
 Past Developers:
     - Sri Ram Duvvuri (alumni, prior tech lead) [<img src="/img/github.svg" alt="github" width="25" height="25" />](https://github.com/sriram1302)
