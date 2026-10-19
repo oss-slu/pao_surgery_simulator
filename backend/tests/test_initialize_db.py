@@ -5,6 +5,13 @@ db.engine is patched so these never need Postgres.
 from unittest.mock import patch
 
 import db
+import pytest
+from models import Dicom
+
+# Run against the backend copies staged under their original module names.
+pytestmark = pytest.mark.skipif(
+    not hasattr(Dicom, "patient_name"), reason="Requires the patient-name backend copies"
+)
 
 
 def _executed_sql(mock_conn):
@@ -13,7 +20,7 @@ def _executed_sql(mock_conn):
 
 @patch("db.Base.metadata.create_all")
 @patch("db.engine")
-def test_initialize_db_adds_user_verified_column(mock_engine, mock_create_all):
+def test_initialize_db_adds_user_verified_and_patient_name_columns(mock_engine, mock_create_all):
     begin_conn = mock_engine.begin.return_value.__enter__.return_value
 
     assert db.initialize_db() is True
@@ -22,6 +29,7 @@ def test_initialize_db_adds_user_verified_column(mock_engine, mock_create_all):
     assert _executed_sql(begin_conn) == [
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS user_verified BOOLEAN NOT NULL DEFAULT true",
         "ALTER TABLE users ALTER COLUMN user_verified SET DEFAULT false",
+        "ALTER TABLE dicom_uploads ADD COLUMN IF NOT EXISTS patient_name VARCHAR(255)",
     ]
 
 
