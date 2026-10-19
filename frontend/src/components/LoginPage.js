@@ -88,6 +88,7 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
               <label>Email</label>
               <input
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter your email"
@@ -98,6 +99,7 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
               <label>Password</label>
               <input
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
