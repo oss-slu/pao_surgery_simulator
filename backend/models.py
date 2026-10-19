@@ -1,5 +1,6 @@
 from typing import List
 from sqlalchemy import ForeignKey
+from sqlalchemy import CheckConstraint
 from sqlalchemy import String
 from sqlalchemy import Boolean
 from sqlalchemy import Float
@@ -12,11 +13,31 @@ from sqlalchemy.orm import relationship
 from base import Base
 from datetime import datetime
 
+class LoginSession(Base):
+    """Server-side record; possession of a token alone does not establish validity."""
+    __tablename__ = "login_sessions"
+    __table_args__ = (
+        CheckConstraint("expires_at > issued_at", name="login_session_valid_lifetime"),
+    )
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(43), nullable=False, unique=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    issued_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, index=True
+    )
+    revoked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 class User(Base):
     __tablename__ = "users"
     user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_name: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     user_email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    user_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     user_organization: Mapped[str] = mapped_column(String(255), nullable=True)
     user_password: Mapped[str] = mapped_column(String(255), nullable=False)
     patients: Mapped[List["Patient"]] = relationship("Patient", back_populates="user", cascade="all, delete-orphan")

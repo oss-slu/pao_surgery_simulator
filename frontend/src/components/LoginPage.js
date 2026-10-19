@@ -2,13 +2,19 @@ import React, { useState } from "react";
 import toast from "react-hot-toast";
 import "./LoginPage.css";
 import { useNavigate } from "react-router-dom";
+import { storeSession } from "../sessionApi";
 
 function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+      const reason = new URLSearchParams(window.location.search).get("reason");
+      if (reason === "expired") return "Your session expired. Please log in again.";
+      if (reason === "required") return "Please log in again to continue.";
+      return "";
+    });
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -30,8 +36,10 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
         toast.error(message);
         return;
       }
-      localStorage.setItem("user_id", data.user_id); // ← store user_id
-      localStorage.setItem("user_name", data.user_name); // ← store user_name
+      storeSession(data);
+      // Existing pages still use these display/routing values until their auth update.
+      localStorage.setItem("user_id", data.user_id);
+      localStorage.setItem("user_name", data.user_name);
       onLoginSuccess(data.user_name);
     } catch (err) {
       const message = "Network error: " + err.message;
