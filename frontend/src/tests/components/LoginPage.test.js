@@ -25,7 +25,7 @@ test('renders login form', () => {
   );
 
   expect(screen.getByText('Welcome back')).toBeInTheDocument();
-  expect(screen.getByPlaceholderText('Enter your username')).toBeInTheDocument();
+  expect(screen.getByPlaceholderText('Enter your email')).toBeInTheDocument();
   expect(screen.getByPlaceholderText('Enter your password')).toBeInTheDocument();
   expect(container.querySelector('button.submit-btn')).toBeInTheDocument();
 });
@@ -56,8 +56,8 @@ test('successful login stores user_id and user_name', async () => {
   );
 
   await user.type(
-    screen.getByPlaceholderText('Enter your username'),
-    'testuser'
+    screen.getByPlaceholderText('Enter your email'),
+    'testuser@example.com'
   );
   await user.type(
     screen.getByPlaceholderText('Enter your password'),

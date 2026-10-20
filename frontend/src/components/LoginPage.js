@@ -6,7 +6,7 @@ import { storeSession } from "../sessionApi";
 
 function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(() => {
@@ -25,13 +25,13 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_name: username,
+          user_email: email,
           user_password: password,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        const message = data.error || "Invalid username or password";
+        const message = data.error || "Invalid email or password";
         setError(message);
         toast.error(message);
         return;
@@ -85,12 +85,13 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
           <h2 style={{ marginBottom: "1.5rem" }}>Welcome back</h2>
           <form onSubmit={handleLogin}>
             <div className="form-group">
-              <label>Username</label>
+              <label>Email</label>
               <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your email"
                 required
               />
             </div>
@@ -98,6 +99,7 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
               <label>Password</label>
               <input
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"

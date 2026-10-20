@@ -179,20 +179,20 @@ def user_login():
     if not data:
         return jsonify({"error": "Missing data"}), 400
 
-    user_name = data.get("user_name") or data.get("username")
+    user_email = data.get("user_email") or data.get("email")
     user_password = data.get("user_password") or data.get("password")
 
-    if not user_name:
-        return jsonify({"error": "Missing Username"}), 400
+    if not user_email:
+        return jsonify({"error": "Missing Email"}), 400
 
     if not user_password:
         return jsonify({"error": "Missing Password"}), 400
 
     try:
         with connect() as db:
-            user = db.query(User).filter_by(user_name=user_name).first()
+            user = db.query(User).filter_by(user_email=user_email).first()
             if not user:
-                return jsonify({"error": "Invalid username"}), 401
+                return jsonify({"error": "Invalid email"}), 401
 
             if not check_password_hash(user.user_password, user_password):
                 return jsonify({"error": "Invalid password"}), 401
