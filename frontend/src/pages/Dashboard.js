@@ -52,8 +52,7 @@ function Dashboard() {
                 const savedScans = uploads.map((upload) => ({
                     id: upload.upload_id,
                     addedAt: upload.upload_date,
-                    // The scans endpoint does not return patient names yet.
-                    patientName: "patient_name",
+                    patientName: upload.patient_name || "patient_name",
                     files: upload.files,
                 }));
                 if (controller.signal.aborted) return;
@@ -97,9 +96,17 @@ function Dashboard() {
         navigate(`/viewer/${encodeURIComponent(scanId)}`);
     };
     
-    const handlePatientRename = (scanId, value) => {
+    const handlePatientRename = async (scanId, value) => {
+        const response = await sessionFetch(
+            `${API_BASE}/api/scans/${encodeURIComponent(scanId)}`,
+            { method: "PATCH", body: { patient_name: value } }
+        );
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || "Unable to save patient name.");
+        }
         setScans((previous) => previous.map((scan) =>
-            scan.id === scanId ? { ...scan, patientName: value } : scan
+            scan.id === scanId ? { ...scan, patientName: data.patient_name } : scan
         ));
     };
     
@@ -227,7 +234,27 @@ function Dashboard() {
 
 function EditableScanName({ value, label, onSave }) {
     const [draft, setDraft] = useState(null);
+    const [isSaving, setIsSaving] = useState(false);
     const cancelled = useRef(false);
+    const saving = useRef(false);
+
+    const saveDraft = async () => {
+        if (cancelled.current || saving.current) return;
+        const name = draft.trim();
+        setDraft(null);
+        if (!name || name === value) return;
+
+        saving.current = true;
+        setIsSaving(true);
+        try {
+            await onSave(name);
+        } catch (error) {
+            toast.error(error.message || "Unable to save patient name.");
+        } finally {
+            saving.current = false;
+            setIsSaving(false);
+        }
+    };
 
     if (draft !== null) {
         return (
@@ -235,12 +262,10 @@ function EditableScanName({ value, label, onSave }) {
                 aria-label={label}
                 autoFocus
                 value={draft}
+                maxLength={255}
                 onFocus={(event) => event.target.select()}
                 onChange={(event) => setDraft(event.target.value)}
-                onBlur={() => {
-                    if (!cancelled.current) onSave(draft.trim() || value);
-                    setDraft(null);
-                }}
+                onBlur={saveDraft}
                 onKeyDown={(event) => {
                     if (event.key === "Enter") {
                         event.preventDefault();
@@ -260,6 +285,8 @@ function EditableScanName({ value, label, onSave }) {
         <button
             type="button"
             aria-label={`Edit ${label.toLowerCase()}`}
+            aria-busy={isSaving}
+            disabled={isSaving}
             onClick={() => {
                 cancelled.current = false;
                 setDraft(value);

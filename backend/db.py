@@ -43,6 +43,9 @@ def initialize_db():
             conn.execute(text(
                 "ALTER TABLE users ALTER COLUMN user_verified SET DEFAULT false"
             ))
+            conn.execute(text(
+                "ALTER TABLE dicom_uploads ADD COLUMN IF NOT EXISTS patient_name VARCHAR(255)"
+            ))
         print("Tables created successfully.")
         return True
     except Exception as e:

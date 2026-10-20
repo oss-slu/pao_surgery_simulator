@@ -129,7 +129,7 @@ def read_patient_name(file_paths):
             raw_name = str(getattr(dataset, "PatientName", "") or "")
             patient_name = " ".join(raw_name.replace("^", " ").split())
             if patient_name:
-                return patient_name
+                return patient_name[:255]  # Truncate to 255 characters
         except Exception:
             # Missing or unreadable metadata must not fail a successful upload.
             continue
@@ -357,10 +357,22 @@ def list_user_scans(user_id):
                 except FileNotFoundError:
                     files = []
 
+                if upload.patient_name is None:
+                    patient_name = read_patient_name(
+                        [os.path.join(upload_path, name) for name in files]
+                    )
+                    # A concurrent rename must win over metadata recovery.
+                    db.query(Dicom).filter(
+                        Dicom.upload_id == upload.upload_id,
+                        Dicom.patient_name.is_(None),
+                    ).update({Dicom.patient_name: patient_name}, synchronize_session=False)
+                    db.refresh(upload)
+
                 scans.append({
                     "upload_id": upload.upload_id,
                     "user_id": upload.user_id,
                     "upload_date": upload.upload_date.isoformat() if upload.upload_date else None,
+                    "patient_name": upload.patient_name,
                     "files": files,
                 })
 
@@ -368,6 +380,27 @@ def list_user_scans(user_id):
     except Exception:
         app.logger.exception("Failed to list user scans")
         return jsonify({"error": "Failed to list user scans"}), 500
+
+@app.route("/api/scans/<scan_id>", methods=["PATCH"])
+@require_session
+@require_scan_owner
+def rename_scan_patient(scan_id):
+    data = request.get_json(silent=True)
+    patient_name = data.get("patient_name") if isinstance(data, dict) else None
+    if not isinstance(patient_name, str) or not 1 <= len(patient_name.strip()) <= 255:
+        return jsonify({"error": "Patient name must contain 1 to 255 characters"}), 400
+    patient_name = patient_name.strip()
+
+    try:
+        with connect() as db:
+            scan = db.query(Dicom).filter_by(upload_id=scan_id, user_id=g.user_id).first()
+            if scan is None:
+                return jsonify({"error": "Scan not found"}), 404
+            scan.patient_name = patient_name
+        return jsonify({"upload_id": scan_id, "patient_name": patient_name}), 200
+    except Exception:
+        app.logger.exception("Failed to save patient name")
+        return jsonify({"error": "Unable to save patient name"}), 500
 
 
 def _dicom_slice_sort_key(item):
@@ -468,14 +501,15 @@ def upload_dicom():
         return jsonify({"error": "No valid .dcm files uploaded"}), 400
     
     try:
+        patient_name = read_patient_name(saved_paths)
         with connect() as db:
-            new_upload = Dicom(upload_id = upload_id, user_id = user_id)
+            new_upload = Dicom(upload_id=upload_id, user_id=user_id, patient_name=patient_name)
             db.add(new_upload)
             db.flush()
         return jsonify({
             "message": "Files uploaded",
             "upload_id": upload_id,
-            "patient_name": read_patient_name(saved_paths),
+            "patient_name": patient_name,
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
