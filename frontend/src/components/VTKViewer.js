@@ -90,7 +90,7 @@ function VTKViewer({ modelUrl, label }) {
   }, [modelUrl]);
 
   return (
-    <div style={{ width: '100%', height: '512px', border: '1px solid #444', position: 'relative' }}>
+    <div style={{ width: '100%', height: '100%', minHeight: 0, position: 'relative' }}>
       <div ref={vtkContainerRef} style={{ width: '100%', height: '100%' }} />
 
       {label && label.visible !== false && (
