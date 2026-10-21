@@ -80,6 +80,21 @@ def test_verify_email_garbage_token(mock_connect, client):
 
 
 @patch("app.connect")
+def test_verify_rejects_quoted_printable_corrupted_token(mock_connect, client):
+    """Console MIME used to print token=3DeyJ...; that corrupted token must fail."""
+    user = _make_user()
+    _mock_db_with_user(mock_connect, user)
+    good = make_verification_token(user)
+    corrupted = "3D" + good
+
+    response = _post_token(client, corrupted)
+
+    assert response.status_code == 400
+    assert response.get_json()["code"] == "token_invalid"
+    assert user.user_verified is False
+
+
+@patch("app.connect")
 def test_verify_email_expired_token(mock_connect, client):
     user = _make_user()
     _mock_db_with_user(mock_connect, user)

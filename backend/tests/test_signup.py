@@ -198,3 +198,32 @@ def test_signup_mail_failure_keeps_account(
     new_user = mock_db.add.call_args[0][0]
     assert new_user.user_verified is False
     mock_send.assert_called_once()
+
+
+@patch("app.connect")
+def test_signup_missing_mail_env_keeps_account_with_soft_fail(
+    mock_connect, client, monkeypatch
+):
+    """Unmocked mailer: missing FRONTEND_URL soft-fails like MailError, keeps account."""
+    mock_db = _mock_db(mock_connect)
+    _flush_sets_id(mock_db)
+    monkeypatch.setenv("MAIL_SENDER", "noreply@example.com")
+    monkeypatch.setenv("MAIL_BACKEND", "console")
+    monkeypatch.delenv("FRONTEND_URL", raising=False)
+
+    response = client.post("/api/signup", json={
+        "user_name": "newuser",
+        "user_email": "new@example.com",
+        "user_password": "password123",
+    })
+
+    assert response.status_code == 201
+    data = response.get_json()
+    assert data["id"] == 42
+    assert data["message"] == MAIL_FAIL_MESSAGE
+    body = response.get_data(as_text=True)
+    assert "KeyError" not in body
+    assert "FRONTEND_URL" not in body
+    mock_db.add.assert_called_once()
+    new_user = mock_db.add.call_args[0][0]
+    assert new_user.user_verified is False

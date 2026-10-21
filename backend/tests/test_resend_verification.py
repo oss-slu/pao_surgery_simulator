@@ -166,3 +166,27 @@ def test_resend_db_failure_returns_generic_500(mock_connect, client):
     assert response.status_code == 500
     assert response.get_json() == {"error": "An internal error has occurred"}
     assert "10.0.0.5" not in response.get_data(as_text=True)
+
+
+@patch("app.connect")
+def test_resend_missing_mail_env_returns_controlled_error(
+    mock_connect, client, monkeypatch
+):
+    """Unmocked mailer: missing FRONTEND_URL must be MailError, not generic 500."""
+    user = _make_user(verified=False)
+    _mock_db_with_user(mock_connect, user)
+    monkeypatch.setenv("MAIL_SENDER", "noreply@example.com")
+    monkeypatch.setenv("MAIL_BACKEND", "console")
+    monkeypatch.delenv("FRONTEND_URL", raising=False)
+
+    response = client.post(
+        "/api/resend_verification", json={"email": "test@example.com"}
+    )
+
+    assert response.status_code == 500
+    assert response.get_json() == {"error": "Unable to send verification email"}
+    body = response.get_data(as_text=True)
+    assert "An internal error has occurred" not in body
+    assert "KeyError" not in body
+    assert "FRONTEND_URL" not in body
+    assert "MAIL_SENDER" not in body

@@ -102,7 +102,13 @@ test('unverified login shows verification message and resend action', async () =
   expect(
     screen.getByRole('button', { name: /resend verification email/i })
   ).toBeInTheDocument();
+  // Login alone must not claim an email was just sent (only signup/resend send).
+  expect(
+    screen.queryByText(/a verification email has been sent/i)
+  ).not.toBeInTheDocument();
   expect(localStorage.getItem('user_id')).toBeNull();
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(global.fetch.mock.calls[0][0]).toMatch(/\/api\/login$/);
 });
 
 test('resend calls /api/resend_verification with entered email', async () => {

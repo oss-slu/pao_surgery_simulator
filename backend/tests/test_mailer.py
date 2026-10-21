@@ -1,7 +1,7 @@
-"""Tests for the email verification pieces that exist today.
+"""Tests for mailer console/SMTP backends and signup creating unverified users.
 
-Covers mailer.py (console vs SMTP backends, failures, verification link)
-and signup creating unverified users.
+Covers mailer.py (console vs SMTP, TLS/login, failures, verification link)
+and that signup persists `user_verified=False`.
 SMTP and the DB are mocked; no real mail is sent and no Postgres is needed.
 """
 import logging
@@ -130,6 +130,50 @@ def test_verification_email_expiry_matches_token_max_age(mock_send, monkeypatch)
 
     body = mock_send.call_args[0][2]
     assert f"expires in {VERIFY_TOKEN_MAX_AGE // 3600} hours" in body
+
+
+def test_send_email_missing_mail_sender_raises_mail_error(monkeypatch):
+    monkeypatch.delenv("MAIL_SENDER", raising=False)
+    monkeypatch.setenv("MAIL_BACKEND", "console")
+
+    with pytest.raises(MailError):
+        send_email("user@example.com", "Hello", "Body text")
+
+
+def test_send_verification_email_missing_frontend_url_raises_mail_error(
+    monkeypatch,
+):
+    monkeypatch.setenv("MAIL_SENDER", "noreply@example.com")
+    monkeypatch.setenv("MAIL_BACKEND", "console")
+    monkeypatch.delenv("FRONTEND_URL", raising=False)
+
+    with pytest.raises(MailError):
+        send_verification_email("user@example.com", "abc123")
+
+
+def test_console_verification_print_is_copy_pasteable(monkeypatch, capsys):
+    """Console must print a plain link — not quoted-printable MIME (token=3D...)."""
+    monkeypatch.setenv("MAIL_SENDER", "noreply@example.com")
+    monkeypatch.setenv("MAIL_BACKEND", "console")
+    monkeypatch.setenv("FRONTEND_URL", "http://localhost:3000")
+    # Long JWT-like token similar to itsdangerous output (triggers QP soft-wrap if MIME printed).
+    token = (
+        "eyJ1aWQiOjIsImVtYWlsIjoiYWRyaWFud2VobGVuMTNAaG90bWFpbC5jb20ifQ"
+        ".atgmZw.4KDKEs6v-2njm3lhMul4kVIAF4k"
+    )
+    expected_link = f"http://localhost:3000/verify?token={token}"
+
+    send_verification_email("user@example.com", token)
+
+    out = capsys.readouterr().out
+    assert expected_link in out
+    assert "token=3D" not in out
+    assert "Content-Transfer-Encoding" not in out
+    # URL must appear on a single line (no soft-break mid-token).
+    link_lines = [line for line in out.splitlines() if "verify?token=" in line]
+    assert len(link_lines) == 1
+    assert link_lines[0].strip() == expected_link
+    assert f"?token={token}" in link_lines[0]
 
 
 # --- signup -------------------------------------------------------------------
