@@ -134,12 +134,19 @@ def test_verification_email_expiry_matches_token_max_age(mock_send, monkeypatch)
 
 # --- signup -------------------------------------------------------------------
 
+@patch("app.send_verification_email")
 @patch("app.connect")
-def test_signup_creates_unverified_user(mock_connect, client):
+def test_signup_creates_unverified_user(mock_connect, mock_send, client):
     mock_db = MagicMock()
     # Username and email uniqueness lookups both find nothing.
     mock_db.query.return_value.filter_by.return_value.first.side_effect = [None, None]
     mock_connect.return_value.__enter__.return_value = mock_db
+
+    def _flush_sets_id():
+        new_user = mock_db.add.call_args[0][0]
+        new_user.user_id = 1
+
+    mock_db.flush.side_effect = _flush_sets_id
 
     response = client.post("/api/signup", json={
         "user_name": "newuser",
@@ -150,3 +157,4 @@ def test_signup_creates_unverified_user(mock_connect, client):
     assert response.status_code == 201
     new_user = mock_db.add.call_args[0][0]
     assert new_user.user_verified is False
+    mock_send.assert_called_once()

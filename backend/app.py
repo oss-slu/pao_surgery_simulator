@@ -1,6 +1,7 @@
 import os
 import json
 from functools import wraps
+from types import SimpleNamespace
 import uuid
 import pydicom 
 import numpy as np 
@@ -169,7 +170,32 @@ def user_signup():
             new_user = User( user_name=user_name, user_email=user_email, user_verified=False, user_organization=user_organization, user_password=user_password)
             db.add(new_user)
             db.flush()
-            return jsonify({"message": "User Account", "id": new_user.user_id}), 201
+            # Capture before session closes; commit happens when this block exits.
+            user_id = new_user.user_id
+            mail_to = new_user.user_email
+
+        try:
+            token = make_verification_token(
+                SimpleNamespace(user_id=user_id, user_email=mail_to)
+            )
+            send_verification_email(mail_to, token)
+        except MailError:
+            app.logger.exception("Failed to send verification email after signup")
+            return jsonify({
+                "message": (
+                    "Account created, but the verification email could not be sent. "
+                    "You can request another verification email."
+                ),
+                "id": user_id,
+            }), 201
+
+        return jsonify({
+            "message": (
+                "Account created. Please verify your email. "
+                "A verification email has been sent."
+            ),
+            "id": user_id,
+        }), 201
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -197,6 +223,12 @@ def user_login():
 
             if not check_password_hash(user.user_password, user_password):
                 return jsonify({"error": "Invalid password"}), 401
+
+            if not user.user_verified:
+                return jsonify({
+                    "error": "Email verification required",
+                    "code": "EMAIL_NOT_VERIFIED",
+                }), 403
 
             session = create_session(db, user.user_id)
             response_data = {
