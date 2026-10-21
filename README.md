@@ -20,8 +20,10 @@ PAO Simulation Surgery is a web based application designed to establish an inter
 ### Getting Started
 - Clone the Repository from GitHub.
 - Install the requirements for React using `npm install` in the frontend, and in the backend for Python using `pip install -r requirements.txt` in the terminal.
-- Copy `backend/.env.example` to `backend/.env` and set `SECRET_KEY` (generate one with `python -c "import secrets; print(secrets.token_hex(32))"`). The backend will not start without it. Never commit `backend/.env`.
-- Email verification is in progress: accounts have a verified flag and `POST /api/verify_email` exists, but login does not require verification yet.
+- Copy `backend/.env.example` to `backend/.env`. Set `SECRET_KEY` (generate with `python -c "import secrets; print(secrets.token_hex(32))"`); the backend will not start without it.
+- Email settings in `backend/.env`: `MAIL_BACKEND=console` (default) prints messages locally instead of sending. For Gmail SMTP, set `MAIL_BACKEND=smtp`, `MAIL_SERVER=smtp.gmail.com`, `MAIL_PORT=587`, plus `MAIL_USERNAME` and `MAIL_PASSWORD` — use a Google App Password, not your normal account password. `MAIL_SENDER` is the From address; `FRONTEND_URL` is the base URL for verification links (local default `http://localhost:3000`).
+- Never commit `backend/.env` or any credentials.
+- Email verification: signup sends a verification email; users must verify via `/verify?token=...` before login. Unverified login shows a resend action. Configure mail via `MAIL_*` / `FRONTEND_URL` in `backend/.env` (console backend for local development).
 - Install SQLite.
 - Start your PostgreSQL database prior to starting the application.
 - After installing necessary requirements, run the application by using `python app.py` in the `backend` folder and `npm start` in the `frontend` folder.
