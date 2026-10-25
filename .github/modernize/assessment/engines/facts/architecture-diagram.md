@@ -51,7 +51,7 @@ flowchart TD
     ScanAPI -->|"scan metadata and labels"| Database
     ScanAPI -->|"requests conversion"| Processing
     Processing -->|"reads source series"| Uploads
-    Processing -->|"writes cached volume"| Uploads
+    Processing -->|"writes generated volume"| Uploads
     Processing -->|"returns VTI data"| ScanAPI
     ScanAPI -->|"serves volume or archive"| Transport
     ScanAPI -->|"stores uploaded DICOM series"| Uploads
