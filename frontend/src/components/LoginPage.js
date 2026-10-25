@@ -9,6 +9,9 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
   const [error, setError] = useState(() => {
       const reason = new URLSearchParams(window.location.search).get("reason");
       if (reason === "expired") return "Your session expired. Please log in again.";
@@ -19,6 +22,8 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
+    setResendMessage("");
+    setNeedsVerification(false);
     setLoading(true);
     try {
       const res = await fetch(`${apiBase}/api/login`, {
@@ -33,6 +38,9 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
       if (!res.ok) {
         const message = data.error || "Invalid email or password";
         setError(message);
+        if (data.code === "EMAIL_NOT_VERIFIED") {
+          setNeedsVerification(true);
+        }
         toast.error(message);
         return;
       }
@@ -47,6 +55,44 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
       toast.error(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email.trim() || resending) return;
+    setResending(true);
+    setResendMessage("");
+    try {
+      const res = await fetch(`${apiBase}/api/resend_verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
+      if (!res.ok) {
+        const message =
+          (typeof data.error === "string" && data.error) ||
+          "Unable to resend verification email";
+        setResendMessage(message);
+        toast.error(message);
+        return;
+      }
+      const message =
+        (typeof data.message === "string" && data.message) ||
+        "Verification email sent";
+      setResendMessage(message);
+      toast.success(message);
+    } catch {
+      const message = "Unable to resend verification email";
+      setResendMessage(message);
+      toast.error(message);
+    } finally {
+      setResending(false);
     }
   };
 
@@ -108,6 +154,27 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
             </div>
             {error && (
               <p style={{ color: "red", marginBottom: "0.75rem" }}>{error}</p>
+            )}
+            {needsVerification && (
+              <div style={{ marginBottom: "0.75rem" }}>
+                <p style={{ marginBottom: "0.5rem" }}>
+                  Please verify your email before logging in. Check your inbox
+                  for a verification link, or resend it below.
+                </p>
+                <button
+                  type="button"
+                  className="secondary-link"
+                  onClick={handleResendVerification}
+                  disabled={resending || !email.trim()}
+                >
+                  {resending ? "Sending..." : "Resend verification email"}
+                </button>
+                {resendMessage && (
+                  <p role="status" style={{ marginTop: "0.5rem" }}>
+                    {resendMessage}
+                  </p>
+                )}
+              </div>
             )}
             <button className="submit-btn" type="submit" disabled={loading}>
               {loading ? "Logging in..." : "Login"}
