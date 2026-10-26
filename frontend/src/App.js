@@ -12,7 +12,7 @@ import Landing from "./pages/Landing";
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={process.env.PUBLIC_URL || "/"}>
       <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
       <Routes>
         {/* Default: redirect root to /login */}
