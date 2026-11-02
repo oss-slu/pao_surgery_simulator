@@ -7,6 +7,107 @@ import vtkVolumeMapper from '@kitware/vtk.js/Rendering/Core/VolumeMapper';
 import vtkXMLImageDataReader from '@kitware/vtk.js/IO/XML/XMLImageDataReader';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import vtkPiecewiseFunction from '@kitware/vtk.js/Common/DataModel/PiecewiseFunction';
+import {vec3} from 'gl-matrix';
+
+function applyStraightCut(imageData, { start, end, depthDirection, thickness, emptyValue = -1000,}) {
+  const isVector = (v) => // check if v is a valid 3D vector (array of 3 finite numbers)
+    v?.length === 3 && Array.from(v).every(Number.isFinite);
+
+  if (![start, end, depthDirection].every(isVector)) {
+    throw new Error(
+      'Start, end, and depthDirection must be finite 3D vectors.'
+    );
+  }
+
+  if (!Number.isFinite(thickness) || thickness <= 0) {
+    throw new Error('Thickness must be greater than zero.');
+  }
+
+  if (!Number.isFinite(emptyValue)) {
+    throw new Error('The empty value must be finite.');
+  }
+
+  const scalars = imageData?.getPointData()?.getScalars();
+
+  if (!scalars || scalars.getNumberOfComponents() !== 1) {
+    throw new Error(
+      'A volume with one scalar value per sample is required.'
+    );
+  }
+
+  // Direction and length of the drawn segment.
+  const along = vec3.subtract([0, 0, 0], end, start);
+  const length = vec3.length(along);
+
+  if (length <= 0 || vec3.length(depthDirection) <= 0) {
+    throw new Error(
+      'The segment and depth direction must have nonzero length.'
+    );
+  }
+
+  vec3.normalize(along, along);
+  const depth = vec3.normalize([0, 0, 0], depthDirection);
+
+  if (Math.abs(vec3.dot(along, depth)) >= 0) {
+    throw new Error(
+      'The cut segment must be perpendicular to its depth direction.'
+    );
+  }
+
+  // Direction across the blade's thickness.
+  const across = vec3.cross([0, 0, 0], along, depth);
+  vec3.normalize(across, across);
+
+  const values = scalars.getData();
+  const [iMin, iMax, jMin, jMax, kMin, kMax] =
+    imageData.getExtent();
+
+  const indices = [];
+  const previousValues = [];
+  const point = [0, 0, 0];
+  const offset = [0, 0, 0];
+
+  // Small tolerance for floating-point rounding at boundaries.
+  const epsilon = 1e-6 * Math.max(1, length, thickness);
+  let index = 0;
+
+  // VTK stores samples with I changing fastest, then J, then K.
+  for (let k = kMin; k <= kMax; k++) {
+    for (let j = jMin; j <= jMax; j++) {
+      for (let i = iMin; i <= iMax; i++, index++) {
+        // Account for the image's spacing, origin, and orientation.
+        imageData.indexToWorld([i, j, k], point);
+        vec3.subtract(offset, point, start);
+
+        const distanceAlong = vec3.dot(offset, along);
+        const distanceAcross = vec3.dot(offset, across);
+
+        const inside =
+          distanceAlong >= -epsilon &&
+          distanceAlong <= length + epsilon &&
+          Math.abs(distanceAcross) <= thickness / 2 + epsilon;
+
+        if (!inside || values[index] === emptyValue) {
+          continue;
+        }
+
+        indices.push(index);
+        previousValues.push(values[index]);
+        values[index] = emptyValue;
+      }
+    }
+  }
+
+  if (indices.length > 0) {
+    scalars.dataChange();
+    imageData.modified();
+  }
+
+  return {
+    indices: Uint32Array.from(indices),
+    previousValues: values.constructor.from(previousValues),
+  };
+}
 
 function VTKViewer({ modelUrl, label }) {
   const vtkContainerRef = useRef(null);
