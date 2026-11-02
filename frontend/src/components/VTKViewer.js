@@ -169,4 +169,7 @@ function VTKViewer({ modelUrl, label }) {
   );
 }
 
+// will start adding the drawing functionality soon
+
+
 export default VTKViewer;
