@@ -9,8 +9,14 @@ import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransf
 import vtkPiecewiseFunction from '@kitware/vtk.js/Common/DataModel/PiecewiseFunction';
 import {vec3} from 'gl-matrix';
 
-function applyStraightCut(imageData, { start, end, depthDirection, thickness, emptyValue = -1000,}) {
-  const isVector = (v) => // check if v is a valid 3D vector (array of 3 finite numbers)
+function applyStraightCut(imageData, {
+  start,
+  end,
+  depthDirection,
+  thickness,
+  emptyValue = -1000,
+}) {
+  const isVector = (v) =>
     v?.length === 3 && Array.from(v).every(Number.isFinite);
 
   if (![start, end, depthDirection].every(isVector)) {
@@ -39,7 +45,7 @@ function applyStraightCut(imageData, { start, end, depthDirection, thickness, em
   const along = vec3.subtract([0, 0, 0], end, start);
   const length = vec3.length(along);
 
-  if (length <= 0 || vec3.length(depthDirection) <= 0) {
+  if (length < 1e-8 || vec3.length(depthDirection) < 1e-8) {
     throw new Error(
       'The segment and depth direction must have nonzero length.'
     );
@@ -48,7 +54,7 @@ function applyStraightCut(imageData, { start, end, depthDirection, thickness, em
   vec3.normalize(along, along);
   const depth = vec3.normalize([0, 0, 0], depthDirection);
 
-  if (Math.abs(vec3.dot(along, depth)) >= 0) {
+  if (Math.abs(vec3.dot(along, depth)) > 1e-6) {
     throw new Error(
       'The cut segment must be perpendicular to its depth direction.'
     );
@@ -181,6 +187,31 @@ function VTKViewer({ modelUrl, label }) {
 
         if (controller.signal.aborted || !context.current) return;
         mapper.setInputData(imageData);
+
+        // Find the center and width of the loaded volume.
+        const [centerX, centerY, centerZ] = imageData.getCenter();
+        const [xMin, xMax] = imageData.getBounds();
+
+        const halfLength = (xMax - xMin) * 0.5;
+
+        // Make a fixed cut through the center.
+        const cut = applyStraightCut(imageData, {
+          start: [
+            centerX - halfLength,
+            centerY,
+            centerZ,
+          ],
+          end: [
+            centerX + halfLength,
+            centerY,
+            centerZ,
+          ],
+          depthDirection: [0, 0, 1],
+          thickness: 20,
+        });
+
+        console.log('Changed volume samples:', cut.indices.length);
+
         renderer.addVolume(actor);
         genericRenderWindow.resize();
         renderer.resetCamera();
