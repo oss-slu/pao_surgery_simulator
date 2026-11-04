@@ -7,7 +7,7 @@ import { screen, waitFor } from '@testing-library/react';
 import VerifyEmail from '../../pages/VerifyEmail';
 import { clearAuthStorage, renderWithRouter } from '../test-utils';
 
-const API_BASE = 'http://127.0.0.1:5000';
+const API_BASE = process.env.REACT_APP_API_BASE || 'http://127.0.0.1:5000';
 
 afterEach(() => {
   clearAuthStorage();
