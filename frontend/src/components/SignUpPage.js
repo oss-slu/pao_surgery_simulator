@@ -87,6 +87,7 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
                             <label>Full Name</label>
                             <input
                                 type="text"
+                                autoComplete="name"
                                 value={fullName}
                                 onChange={(e) => setFullName(e.target.value)}
                                 required
@@ -97,6 +98,7 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
                             <label>Email</label>
                             <input
                                 type="email"
+                                autoComplete="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
@@ -107,6 +109,7 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
                             <label>Organization</label>
                             <input
                                 type="text"
+                                autoComplete="organization"
                                 value={organization}
                                 onChange={(e) => setOrganization(e.target.value)}
                                 placeholder="Hospital / University (optional)"
@@ -116,6 +119,7 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
                             <label>Password</label>
                             <input
                                 type="password"
+                                autoComplete="new-password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required

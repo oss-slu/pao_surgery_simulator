@@ -2,36 +2,52 @@ import React, { useState } from "react";
 import toast from "react-hot-toast";
 import "./LoginPage.css";
 import { useNavigate } from "react-router-dom";
+import { storeSession } from "../sessionApi";
 
 function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [resending, setResending] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
+  const [error, setError] = useState(() => {
+      const reason = new URLSearchParams(window.location.search).get("reason");
+      if (reason === "expired") return "Your session expired. Please log in again.";
+      if (reason === "required") return "Please log in again to continue.";
+      return "";
+    });
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
+    setResendMessage("");
+    setNeedsVerification(false);
     setLoading(true);
     try {
       const res = await fetch(`${apiBase}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_name: username,
+          user_email: email,
           user_password: password,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        const message = data.error || "Invalid username or password";
+        const message = data.error || "Invalid email or password";
         setError(message);
+        if (data.code === "EMAIL_NOT_VERIFIED") {
+          setNeedsVerification(true);
+        }
         toast.error(message);
         return;
       }
-      localStorage.setItem("user_id", data.user_id); // ← store user_id
-      localStorage.setItem("user_name", data.user_name); // ← store user_name
+      storeSession(data);
+      // Existing pages still use these display/routing values until their auth update.
+      localStorage.setItem("user_id", data.user_id);
+      localStorage.setItem("user_name", data.user_name);
       onLoginSuccess(data.user_name);
     } catch (err) {
       const message = "Network error: " + err.message;
@@ -39,6 +55,44 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
       toast.error(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email.trim() || resending) return;
+    setResending(true);
+    setResendMessage("");
+    try {
+      const res = await fetch(`${apiBase}/api/resend_verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
+      if (!res.ok) {
+        const message =
+          (typeof data.error === "string" && data.error) ||
+          "Unable to resend verification email";
+        setResendMessage(message);
+        toast.error(message);
+        return;
+      }
+      const message =
+        (typeof data.message === "string" && data.message) ||
+        "Verification email sent";
+      setResendMessage(message);
+      toast.success(message);
+    } catch {
+      const message = "Unable to resend verification email";
+      setResendMessage(message);
+      toast.error(message);
+    } finally {
+      setResending(false);
     }
   };
 
@@ -77,12 +131,13 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
           <h2 style={{ marginBottom: "1.5rem" }}>Welcome back</h2>
           <form onSubmit={handleLogin}>
             <div className="form-group">
-              <label>Username</label>
+              <label>Email</label>
               <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your email"
                 required
               />
             </div>
@@ -90,6 +145,7 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
               <label>Password</label>
               <input
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
@@ -98,6 +154,27 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
             </div>
             {error && (
               <p style={{ color: "red", marginBottom: "0.75rem" }}>{error}</p>
+            )}
+            {needsVerification && (
+              <div style={{ marginBottom: "0.75rem" }}>
+                <p style={{ marginBottom: "0.5rem" }}>
+                  Please verify your email before logging in. Check your inbox
+                  for a verification link, or resend it below.
+                </p>
+                <button
+                  type="button"
+                  className="secondary-link"
+                  onClick={handleResendVerification}
+                  disabled={resending || !email.trim()}
+                >
+                  {resending ? "Sending..." : "Resend verification email"}
+                </button>
+                {resendMessage && (
+                  <p role="status" style={{ marginTop: "0.5rem" }}>
+                    {resendMessage}
+                  </p>
+                )}
+              </div>
             )}
             <button className="submit-btn" type="submit" disabled={loading}>
               {loading ? "Logging in..." : "Login"}

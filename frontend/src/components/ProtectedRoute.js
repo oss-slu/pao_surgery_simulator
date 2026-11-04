@@ -1,15 +1,20 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Navigate } from "react-router-dom";
+import { clearSession, readSessionToken, startSessionActivity } from "../sessionApi";
 
 /**
  * ProtectedRoute – wraps routes that require authentication.
- * Checks for "user_id" in localStorage (set by LoginPage.js on successful login).
- * If not found, redirects to /login.
+ * Requires a session cookie before displaying a protected page.
+ * The backend validates the token on each protected operation.
  */
 
 function ProtectedRoute({ children }) {
-  const userId = localStorage.getItem("user_id");
-  if (!userId) {
+   const hasToken = Boolean(readSessionToken());
+   useEffect(() => {
+     if (!hasToken) clearSession();
+     else return startSessionActivity();
+   }, [hasToken]);
+   if (!hasToken) {
     return <Navigate to="/login" replace />;
   }
   return children;

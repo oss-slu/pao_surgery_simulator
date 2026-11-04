@@ -54,7 +54,7 @@ test('renders upload UI', () => {
     screen.getByRole('button', { name: 'Choose DICOM Files' })
   ).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Upload' })).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Render 3D' })).toBeDisabled();
+  expect(screen.queryByTestId('vtk-stub')).not.toBeInTheDocument();
 });
 
 test('successful upload posts FormData and calls onUploadComplete', async () => {
@@ -85,7 +85,10 @@ test('successful upload posts FormData and calls onUploadComplete', async () => 
 
   const [, options] = global.fetch.mock.calls[0];
   expect(options.body).toBeInstanceOf(FormData);
-  expect(options.body.get('user_id')).toBe('9');
+  expect(JSON.parse(options.body.get('metadata'))).toEqual({
+    session_token: 'test-session-token',
+  });
+  expect(options.body.has('user_id')).toBe(false);
   expect(options.body.get('files')).toBeInstanceOf(File);
   expect(options.body.get('files').name).toBe('scan.dcm');
 
@@ -120,7 +123,7 @@ test('failed upload shows error toast', async () => {
   expect(toast.success).not.toHaveBeenCalled();
 });
 
-test('render sets VTKViewer modelUrl to render_dicom path', async () => {
+test('successful upload leaves rendering to the dedicated viewer page', async () => {
   const user = userEvent.setup();
   seedAuthStorage({ userId: '1' });
 
@@ -138,15 +141,7 @@ test('render sets VTKViewer modelUrl to render_dicom path', async () => {
   await user.click(screen.getByRole('button', { name: 'Upload' }));
 
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: 'Render 3D' })).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Render 3D' })).not.toBeInTheDocument();
   });
-
-  // Render sets modelUrl only; it does not issue another fetch.
-  const fetchCallsBeforeRender = global.fetch.mock.calls.length;
-  await user.click(screen.getByRole('button', { name: 'Render 3D' }));
-
-  expect(global.fetch.mock.calls.length).toBe(fetchCallsBeforeRender);
-  expect(screen.getByTestId('vtk-stub')).toHaveTextContent(
-    `${API_BASE}/api/render_dicom/uid-123`
-  );
+  expect(screen.queryByTestId('vtk-stub')).not.toBeInTheDocument();
 });

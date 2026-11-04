@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { sessionFetch } from '../sessionApi';
 import '@kitware/vtk.js/Rendering/Profiles/Volume';
 import vtkGenericRenderWindow from '@kitware/vtk.js/Rendering/Misc/GenericRenderWindow';
 import vtkVolume from '@kitware/vtk.js/Rendering/Core/Volume';
@@ -12,6 +13,7 @@ function VTKViewer({ modelUrl, label }) {
   const context = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [emphasizeDenseTissue, setEmphasizeDenseTissue] = useState(false);
 
   useEffect(() => {
     const genericRenderWindow = vtkGenericRenderWindow.newInstance({
@@ -39,13 +41,21 @@ function VTKViewer({ modelUrl, label }) {
     actor.getProperty().setRGBTransferFunction(0, ctfun);
     actor.getProperty().setScalarOpacity(0, ofun);
     actor.getProperty().setInterpolationTypeToLinear();
-    context.current = { genericRenderWindow, renderWindow, mapper, renderer, actor };
+    context.current = { genericRenderWindow, renderWindow, mapper, renderer, actor, ofun };
 
     return () => {
       genericRenderWindow.delete();
       context.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!context.current) return;
+
+    const { ofun, renderWindow } = context.current;
+    ofun.addPoint(400, emphasizeDenseTissue ? 0.75 : 0.3);
+    renderWindow.render();
+  }, [emphasizeDenseTissue]);
 
   useEffect(() => {
     if (!modelUrl || !context.current) return undefined;
@@ -57,7 +67,7 @@ function VTKViewer({ modelUrl, label }) {
 
     const loadVolume = async () => {
       try {
-        const response = await fetch(modelUrl, { signal: controller.signal });
+        const response = await sessionFetch(modelUrl, { signal: controller.signal });
         if (!response.ok) throw new Error(`The render service returned ${response.status}.`);
 
         const reader = vtkXMLImageDataReader.newInstance();
@@ -89,8 +99,33 @@ function VTKViewer({ modelUrl, label }) {
   }, [modelUrl]);
 
   return (
-    <div style={{ width: '100%', height: '512px', border: '1px solid #444', position: 'relative' }}>
+    <div style={{ width: '100%', height: '100%', minHeight: 0, position: 'relative' }}>
       <div ref={vtkContainerRef} style={{ width: '100%', height: '100%' }} />
+
+      <fieldset
+        style={{
+          position: 'absolute',
+          top: '1rem',
+          right: '1rem',
+          zIndex: 10,
+          margin: 0,
+          padding: '0.65rem 0.85rem',
+          background: 'rgba(15, 52, 96, 0.94)',
+          border: '1px solid #4a90d9',
+          borderRadius: '6px',
+          color: '#ffffff',
+        }}
+      >
+        <legend style={{ padding: '0 0.25rem', fontSize: '0.85rem' }}>Control panel</legend>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
+          <input
+            type="checkbox"
+            checked={emphasizeDenseTissue}
+            onChange={(event) => setEmphasizeDenseTissue(event.target.checked)}
+          />
+          Emphasize dense tissue
+        </label>
+      </fieldset>
 
       {label && label.visible !== false && (
         <div
