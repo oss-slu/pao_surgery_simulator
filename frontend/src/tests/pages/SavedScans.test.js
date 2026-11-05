@@ -9,8 +9,22 @@ import { clearAuthStorage, renderWithRouter, seedAuthStorage } from '../test-uti
 
 jest.mock('../../components/VTKViewer', () => ({
   __esModule: true,
-  default: function VTKViewerStub({ modelUrl }) {
-    return <div data-testid="vtk-model-url">{modelUrl}</div>;
+  default: function VTKViewerStub({ modelUrl, onMarkerAdded }) {
+    return (
+      <>
+        <div data-testid="vtk-model-url">{modelUrl}</div>
+        <button
+          type="button"
+          onClick={() => onMarkerAdded({
+            id: 'marker-1',
+            coordinates: { x: 1, y: 2, z: 3 },
+            color: '#ff0000',
+          })}
+        >
+          Add test marker
+        </button>
+      </>
+    );
   },
 }));
 
@@ -100,4 +114,40 @@ test('redirects to the full-page viewer and starts rendering after upload', asyn
   );
   expect(screen.getByLabelText('Model ID new-scan-7')).toBeInTheDocument();
   expect(screen.queryByText('Private Patient')).not.toBeInTheDocument();
+});
+
+test('uploads drawn marker coordinates through the label endpoint', async () => {
+  const user = userEvent.setup();
+  seedAuthStorage({ userId: '9', userName: 'surgeon' });
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ label_id: 1 }),
+  });
+
+  renderWithRouter(
+    <Routes>
+      <Route path="/viewer/:uploadId" element={<Viewer />} />
+    </Routes>,
+    { route: '/viewer/scan-42' }
+  );
+  await user.click(screen.getByRole('button', { name: 'Add test marker' }));
+  await user.click(screen.getByRole('button', { name: 'Upload markers (1)' }));
+
+  expect(await screen.findByRole('status')).toHaveTextContent('Uploaded 1 marker(s).');
+  expect(global.fetch).toHaveBeenCalledWith(
+    `${API_BASE}/api/scans/scan-42/labels`,
+    expect.objectContaining({
+      method: 'POST',
+      body: expect.any(String),
+    })
+  );
+  const request = global.fetch.mock.calls[0][1];
+  expect(JSON.parse(request.body)).toEqual(expect.objectContaining({
+    name: 'Marker',
+    description: 'Drawn marker (#ff0000)',
+    coordinates: { x: 1, y: 2, z: 3 },
+    scan_2d_id: 'scan-42',
+    scan_3d_id: 'scan-42',
+  }));
+  expect(screen.getByRole('button', { name: 'Upload markers (0)' })).toBeDisabled();
 });

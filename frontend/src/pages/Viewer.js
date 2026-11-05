@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import VTKViewer from "../components/VTKViewer";
 import { sessionFetch } from "../sessionApi";
@@ -19,33 +19,68 @@ function Viewer() {
     const navigate = useNavigate();
     const [modelUrl, setModelUrl] = useState("");
     const [labelStatus, setLabelStatus] = useState("");
-    const [createdLabel, setCreatedLabel] = useState(null);
+    const [markers, setMarkers] = useState([]);
+    const [isUploadingMarkers, setIsUploadingMarkers] = useState(false);
+    const markersRef = useRef([]);
+    const isUploadingMarkersRef = useRef(false);
 
-    const sendDummyLabel = async () => {
-        setLabelStatus("Sending label...");
+    const addMarker = useCallback((marker) => {
+        const updatedMarkers = [...markersRef.current, marker];
+        markersRef.current = updatedMarkers;
+        setMarkers(updatedMarkers);
+    }, []);
+
+    const uploadMarkers = async () => {
+        if (isUploadingMarkersRef.current || markersRef.current.length === 0) return;
+        const markersToUpload = [...markersRef.current];
+        isUploadingMarkersRef.current = true;
+        setIsUploadingMarkers(true);
+        setLabelStatus(`Uploading ${markersToUpload.length} marker(s)...`);
+        let uploadedCount = 0;
+
         try {
-            const response = await sessionFetch(`${API_BASE}/api/scans/${encodeURIComponent(uploadId)}/labels`, {
-                method: "POST",
-                body: {
-                    name: "Demo anatomy point",
-                    description: "Temporary label sent from the viewer.",
-                    coordinates: { x: 12.5, y: 8.25, z: -4.75 },
-                    body_part_id: "demo-body-part",
-                    scan_2d_id: uploadId,
-                    scan_3d_id: uploadId,
-                    visible: true,
-                },
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || `Label request failed (${response.status})`);
-            setCreatedLabel(data);
-            setLabelStatus("Dummy label saved");
+            for (const marker of markersToUpload) {
+                const response = await sessionFetch(
+                    `${API_BASE}/api/scans/${encodeURIComponent(uploadId)}/labels`,
+                    {
+                        method: "POST",
+                        body: {
+                            name: "Marker",
+                            description: `Drawn marker (${marker.color})`,
+                            coordinates: marker.coordinates,
+                            scan_2d_id: uploadId,
+                            scan_3d_id: uploadId,
+                            visible: true,
+                        },
+                    }
+                );
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || `Marker upload failed (${response.status})`);
+                }
+
+                uploadedCount += 1;
+                const remainingMarkers = markersRef.current.filter(({ id }) => id !== marker.id);
+                markersRef.current = remainingMarkers;
+                setMarkers(remainingMarkers);
+            }
+            setLabelStatus(`Uploaded ${uploadedCount} marker(s).`);
         } catch (error) {
-            setLabelStatus(error.message);
+            setLabelStatus(
+                uploadedCount
+                    ? `Uploaded ${uploadedCount} marker(s); some markers could not be uploaded: ${error.message}`
+                    : error.message
+            );
+        } finally {
+            isUploadingMarkersRef.current = false;
+            setIsUploadingMarkers(false);
         }
     };
 
-    useEffect(() => {       
+    useEffect(() => {
+        markersRef.current = [];
+        setMarkers([]);
+        setLabelStatus("");
         // Construct the VTI model URL served by the Flask backend
         setModelUrl(`${API_BASE}/api/render_dicom/${encodeURIComponent(uploadId)}`);
     }, [uploadId]);
@@ -106,26 +141,27 @@ function Viewer() {
                     </code>
                 </span>
                 <button
-                    onClick={sendDummyLabel}
+                    onClick={uploadMarkers}
+                    disabled={markers.length === 0 || isUploadingMarkers}
                     type="button"
                     style={{
                         background: "#4a90d9",
                         border: "1px solid #90cdf4",
                         borderRadius: "6px",
                         color: "#ffffff",
-                        cursor: "pointer",
+                        cursor: markers.length === 0 || isUploadingMarkers ? "not-allowed" : "pointer",
                         padding: "0.3rem 0.65rem",
                         fontSize: "0.8rem",
                         whiteSpace: "nowrap",
                     }}
                 >
-                    Send dummy label
+                    {isUploadingMarkers ? "Uploading markers..." : `Upload markers (${markers.length})`}
                 </button>
                 {labelStatus && <span role="status" style={{ color: "#ffffff" }}>{labelStatus}</span>}
             </header>
 
             <main style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                {modelUrl && <VTKViewer modelUrl={modelUrl} label={createdLabel} />}
+                {modelUrl && <VTKViewer modelUrl={modelUrl} onMarkerAdded={addMarker} />}
             </main>
         </div>
     );
