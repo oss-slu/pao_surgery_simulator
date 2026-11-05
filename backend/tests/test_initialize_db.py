@@ -30,6 +30,9 @@ def test_initialize_db_adds_user_verified_and_patient_name_columns(mock_engine, 
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS user_verified BOOLEAN NOT NULL DEFAULT true",
         "ALTER TABLE users ALTER COLUMN user_verified SET DEFAULT false",
         "ALTER TABLE dicom_uploads ADD COLUMN IF NOT EXISTS patient_name VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(255)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub)",
+        "ALTER TABLE users ALTER COLUMN user_password DROP NOT NULL",
     ]
 
 
@@ -40,3 +43,12 @@ def test_initialize_db_returns_false_when_alter_fails(mock_engine, mock_create_a
     begin_conn.execute.side_effect = Exception("permission denied for table users")
 
     assert db.initialize_db() is False
+
+
+def test_user_model_supports_google_auth_schema():
+    """ORM columns allow Google-only accounts without placeholder passwords."""
+    from models import User
+
+    assert User.__table__.c.user_password.nullable is True
+    assert User.__table__.c.google_sub.nullable is True
+    assert User.__table__.c.google_sub.unique is True

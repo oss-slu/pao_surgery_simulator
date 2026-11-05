@@ -3,12 +3,14 @@ import toast from "react-hot-toast";
 import "./LoginPage.css";
 import { useNavigate } from "react-router-dom";
 import { storeSession } from "../sessionApi";
+import GoogleContinueButton from "./GoogleContinueButton";
 
 function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resendMessage, setResendMessage] = useState("");
@@ -18,6 +20,20 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
       if (reason === "required") return "Please log in again to continue.";
       return "";
     });
+
+  const applyGoogleError = (err) => {
+    const message = err?.message || "Google sign-in failed";
+    setError(message);
+    setNeedsVerification(err?.code === "EMAIL_NOT_VERIFIED");
+    toast.error(message);
+  };
+
+  const handleGoogleSuccess = (data) => {
+    setError("");
+    setNeedsVerification(false);
+    setResendMessage("");
+    onLoginSuccess(data.user_name);
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -176,13 +192,30 @@ function LoginPage({ apiBase, onLoginSuccess, onShowSignUp }) {
                 )}
               </div>
             )}
-            <button className="submit-btn" type="submit" disabled={loading}>
+            <button
+              className="submit-btn"
+              type="submit"
+              disabled={loading || googleLoading}
+            >
               {loading ? "Logging in..." : "Login"}
             </button>
+            <GoogleContinueButton
+              apiBase={apiBase}
+              disabled={loading || googleLoading}
+              onLoadingChange={setGoogleLoading}
+              onSuccess={handleGoogleSuccess}
+              onError={applyGoogleError}
+            />
+            {googleLoading && (
+              <p role="status" style={{ marginTop: "0.75rem" }}>
+                Continuing with Google...
+              </p>
+            )}
             <button
               type="button"
               className="secondary-link"
               onClick={onShowSignUp}
+              disabled={loading || googleLoading}
             >
               Don&apos;t have an account? Sign up
             </button>

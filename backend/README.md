@@ -1,3 +1,15 @@
+# Backend
+
+## Authentication (current)
+
+Live account routes live in `app.py`: `/api/signup`, `/api/login`, `/api/auth/google`, email verification, and session refresh/logout.
+
+Google Identity Services setup (OAuth Web client, `GOOGLE_CLIENT_ID`, frontend `REACT_APP_GOOGLE_CLIENT_ID`, local testing, password-account conflicts, limitations): see [`docs/google-authentication.md`](../docs/google-authentication.md). Use `backend/.env.example` as the template; never commit secrets or OAuth client secrets.
+
+Automated Google tests mock token verification (`backend/tests/test_google_auth.py`); they do not call Google.
+
+---
+
 # Database
 ### Step for setup the database:
 - **Open the PostgreSQL:** Open PostgreSQL by entering "psql -U postgres" in terminal, the password is "0610"
