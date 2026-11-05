@@ -140,8 +140,8 @@ def read_patient_name(file_paths):
 @app.route("/api/signup", methods=["POST"])
 def user_signup():
     try:
-        data = request.get_json()
-        if not data:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or not data:
             return jsonify({"error": "Missing data"}), 400
     
         user_name = data.get("user_name")
@@ -202,7 +202,7 @@ def user_signup():
 
 @app.route("/api/login", methods=["POST"])
 def user_login():
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "Missing data"}), 400
 
@@ -337,9 +337,9 @@ def user_logout():
         return response, 200
     except SessionAuthenticationError as error:
         safe_errors = {
-            "missing_session_token": "Session token is required",
-            "invalid_session_token": "Invalid session token",
-            "expired_session_token": "Session token expired",
+            "SESSION_REQUIRED": "Session token is required",
+            "SESSION_INVALID": "Invalid session token",
+            "SESSION_EXPIRED": "Session token expired",
         }
         response = jsonify({
             "error": safe_errors.get(error.code, "Authentication failed"),
@@ -369,9 +369,9 @@ def refresh_session():
         return response, 200
     except SessionAuthenticationError as error:
         safe_errors = {
-            "missing_session_token": "Session token is required",
-            "invalid_session_token": "Invalid session token",
-            "expired_session_token": "Session token expired",
+            "SESSION_REQUIRED": "Session token is required",
+            "SESSION_INVALID": "Invalid session token",
+            "SESSION_EXPIRED": "Session token expired",
         }
         response = jsonify({
             "error": safe_errors.get(error.code, "Authentication failed"),
