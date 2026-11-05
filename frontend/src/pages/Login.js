@@ -26,6 +26,7 @@ function Login() {
                 <SignUpPage
                     apiBase={API_BASE}
                     onBackToLogin={() => setShowSignUp(false)}
+                    onGoogleSuccess={handleLoginSuccess}
                 />
             </div>
         );
