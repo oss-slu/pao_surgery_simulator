@@ -400,3 +400,73 @@ def test_google_auth_session_matches_login_shape(
         "expires_at",
     }
     assert response.headers.get("Cache-Control") == "no-store"
+
+
+@patch("app.verify_google_id_token")
+@patch("app.connect")
+def test_google_auth_rejects_incomplete_claims(mock_connect, mock_verify, client):
+    mock_verify.return_value = {"sub": "only-sub", "iss": "https://accounts.google.com"}
+    response = client.post("/api/auth/google", json={"credential": "token"})
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "Invalid Google credential"
+    mock_connect.assert_not_called()
+
+
+@patch("app.create_session")
+@patch("app.verify_google_id_token")
+@patch("app.connect")
+def test_google_auth_workspace_hd_creates_verified_user(
+    mock_connect, mock_verify, mock_create_session, client
+):
+    mock_verify.return_value = _idinfo(
+        email="surgeon@hospital.edu",
+        email_verified=True,
+        hd="hospital.edu",
+    )
+    db = MagicMock()
+    db.query.return_value.filter_by.side_effect = _query_side_effect(
+        by_google_sub=None, by_email=None, by_username=None
+    )
+    _mock_connect(mock_connect, db)
+
+    def capture_add(user):
+        user.user_id = 55
+
+    db.add.side_effect = capture_add
+    mock_create_session.return_value = _session_mock()
+
+    response = client.post("/api/auth/google", json={"credential": "token"})
+    assert response.status_code == 200
+    created = db.add.call_args[0][0]
+    assert created.user_verified is True
+    assert created.user_password is None
+    assert created.user_email == "surgeon@hospital.edu"
+
+
+@patch("app.create_session")
+@patch("app.verify_google_id_token")
+@patch("app.connect")
+def test_google_auth_repeated_login_does_not_duplicate_user(
+    mock_connect, mock_verify, mock_create_session, client
+):
+    """Same google_sub on two requests must reuse the row (no second insert)."""
+    mock_verify.return_value = _idinfo(sub="stable-sub")
+    existing = MagicMock()
+    existing.user_id = 3
+    existing.user_name = "stable"
+    existing.user_verified = True
+    db = MagicMock()
+    db.query.return_value.filter_by.side_effect = _query_side_effect(
+        by_google_sub=existing
+    )
+    _mock_connect(mock_connect, db)
+    mock_create_session.return_value = _session_mock()
+
+    first = client.post("/api/auth/google", json={"credential": "t1"})
+    second = client.post("/api/auth/google", json={"credential": "t2"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.get_json()["user_id"] == second.get_json()["user_id"] == 3
+    db.add.assert_not_called()
+    assert mock_create_session.call_count == 2
