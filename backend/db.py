@@ -35,6 +35,27 @@ def initialize_db():
             for row in result:
                 print("Connected to:", row)
         Base.metadata.create_all(bind=engine)
+        # create_all never adds columns to existing tables; pre-existing rows are treated as verified.
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS user_verified BOOLEAN NOT NULL DEFAULT true"
+            ))
+            conn.execute(text(
+                "ALTER TABLE users ALTER COLUMN user_verified SET DEFAULT false"
+            ))
+            conn.execute(text(
+                "ALTER TABLE dicom_uploads ADD COLUMN IF NOT EXISTS patient_name VARCHAR(255)"
+            ))
+            # Google auth: permanent subject id; password optional for Google-only accounts.
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(255)"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE users ALTER COLUMN user_password DROP NOT NULL"
+            ))
         print("Tables created successfully.")
         return True
     except Exception as e:

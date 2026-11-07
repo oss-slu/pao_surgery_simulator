@@ -1,4 +1,4 @@
-"""Tests for POST /api/upload_dicom (multipart .dcm + form user_id).
+"""Tests for POST /api/upload_dicom (multipart .dcm files).
 
 Patch UPLOAD_FOLDER to tmp_path so files never land in the real uploads dir.
 """
@@ -13,28 +13,35 @@ def _mock_db(mock_connect):
     return mock_db
 
 
-def test_upload_no_files_part(client):
-    response = client.post("/api/upload_dicom", data={})
+def test_upload_no_files_part(authenticated_client):
+    response = authenticated_client.post("/api/upload_dicom", data={})
 
     assert response.status_code == 400
     assert response.get_json()["error"] == "No files part"
 
 
-def test_upload_missing_user_id(client, tmp_path):
+@patch("app.read_patient_name", return_value="Test Patient")
+@patch("app.connect")
+def test_upload_uses_session_identity_without_form_user_id(
+    mock_connect, _mock_patient, authenticated_client, tmp_path
+):
+    _mock_db(mock_connect)
+
     with patch("app.UPLOAD_FOLDER", str(tmp_path)):
-        response = client.post(
+        response = authenticated_client.post(
             "/api/upload_dicom",
             data={"files": (BytesIO(b"dummy"), "scan.dcm")},
             content_type="multipart/form-data",
         )
 
-    assert response.status_code == 400
-    assert response.get_json()["error"] == "Missing user id"
+    assert response.status_code == 200
+    uploaded = mock_connect.return_value.__enter__.return_value.add.call_args.args[0]
+    assert uploaded.user_id == 1
 
 
-def test_upload_only_non_dcm(client, tmp_path):
+def test_upload_only_non_dcm(authenticated_client, tmp_path):
     with patch("app.UPLOAD_FOLDER", str(tmp_path)):
-        response = client.post(
+        response = authenticated_client.post(
             "/api/upload_dicom",
             data={
                 "user_id": "1",
@@ -49,12 +56,12 @@ def test_upload_only_non_dcm(client, tmp_path):
 
 @patch("app.read_patient_name", return_value="Test Patient")
 @patch("app.connect")
-def test_upload_valid_dcm(mock_connect, _mock_patient, client, tmp_path):
+def test_upload_valid_dcm(mock_connect, _mock_patient, authenticated_client, tmp_path):
     # Bytes need not be real DICOM; extension .dcm is what the route checks.
     _mock_db(mock_connect)
 
     with patch("app.UPLOAD_FOLDER", str(tmp_path)):
-        response = client.post(
+        response = authenticated_client.post(
             "/api/upload_dicom",
             data={
                 "user_id": "1",

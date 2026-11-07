@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import Sidebar from "../components/Sidebar";
 import WelcomeSection from "../components/WelcomeSection";
 import UploadSection from "../components/UploadSection";
+import { sessionFetch, logoutSession } from "../sessionApi";
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
 
@@ -12,14 +13,14 @@ const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
  *
  * Wraps the existing Sidebar, WelcomeSection, and UploadSection components.
  * Reads the logged-in username from localStorage (set by Login page).
- * On logout, clears localStorage and navigates back to /login.
+  * On logout, revokes the backend session, clears cookies/account data, and returns to login.
  * 
  * Loads saved uploads on mount and adds successful new uploads to the list in memory.
  */
 function Dashboard() {
     const navigate = useNavigate();
     const [showUpload, setShowUpload] = useState(false);
-    const [username, setUsername] = useState("");
+    const [username, setUsername] = useState("User"); /* Changed to fix the white screen issue */
     const [scans, setScans] = useState([]);
     const [loadingScans, setLoadingScans] = useState(true);
     const [scansError, setScansError] = useState("");
@@ -37,9 +38,9 @@ function Dashboard() {
             setLoadingScans(true);
             setScansError("");
             try {
-                const response = await fetch(
+                const response = await sessionFetch(
                     `${API_BASE}/api/users/${encodeURIComponent(userId)}/scans`,
-                    { signal: controller.signal }
+                    { method: "POST", body: {}, signal: controller.signal }
                 );
                 if (!response.ok) {
                     throw new Error(`Unable to load saved scans (HTTP ${response.status}).`);
@@ -51,8 +52,7 @@ function Dashboard() {
                 const savedScans = uploads.map((upload) => ({
                     id: upload.upload_id,
                     addedAt: upload.upload_date,
-                    // The scans endpoint does not return patient names yet.
-                    patientName: "patient_name",
+                    patientName: upload.patient_name || "patient_name",
                     files: upload.files,
                 }));
                 if (controller.signal.aborted) return;
@@ -77,20 +77,36 @@ function Dashboard() {
         const addedAt = upload.addedAt || new Date().toISOString();
         const patientName = typeof upload.patientName === "string"
             ? upload.patientName.trim() : "";
-        setScans((previous) => [
-            {
-                id: upload.uploadId,
-                patientName: patientName || "patient_name",
-                addedAt,
-                files: [...fileNames],
-            },
-            ...previous,
-        ]);
+        if (upload.uploadId) {
+            setScans((previous) => [
+                {
+                    id: upload.uploadId,
+                    patientName: patientName || "patient_name",
+                    addedAt,
+                    files: [...fileNames],
+                },
+                ...previous,
+            ]);
+            navigate(`/viewer/${encodeURIComponent(upload.uploadId)}`);
+        }
+    };
+
+    const handleOpenScan = (scanId) => {
+        toast.success("Previous upload reopened successfully");
+        navigate(`/viewer/${encodeURIComponent(scanId)}`);
     };
     
-    const handlePatientRename = (scanId, value) => {
+    const handlePatientRename = async (scanId, value) => {
+        const response = await sessionFetch(
+            `${API_BASE}/api/scans/${encodeURIComponent(scanId)}`,
+            { method: "PATCH", body: { patient_name: value } }
+        );
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || "Unable to save patient name.");
+        }
         setScans((previous) => previous.map((scan) =>
-            scan.id === scanId ? { ...scan, patientName: value } : scan
+            scan.id === scanId ? { ...scan, patientName: data.patient_name } : scan
         ));
     };
     
@@ -100,14 +116,18 @@ function Dashboard() {
     }, []);
 
 
-    const handleLogout = () => {
-        localStorage.removeItem("user_name");
-        localStorage.removeItem("user_id");
-        toast.success("Logged out successfully");
-        navigate("/login", { replace: true });
+    const handleLogout = async () => {
+        try {
+            await logoutSession(API_BASE);
+            toast.success("Logged out successfully");
+            navigate("/login", { replace: true });
+        } catch (error) {
+            toast.error(error.message || "Unable to log out. Please try again.");
+        }
     };
 
-    if (!username) return null; // still resolving auth
+    /* Removed to fix the white screen issue */
+    //if (!username) return null; // still resolving auth
 
     return (
         <div className="app-shell">
@@ -161,6 +181,7 @@ function Dashboard() {
                                         <th scope="col" style={cellStyle}>Upload ID</th>
                                         <th scope="col" style={cellStyle}>Date Added</th>
                                         <th scope="col" style={cellStyle}>Patient Name</th>
+                                        <th scope="col" style={cellStyle}>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -189,6 +210,16 @@ function Dashboard() {
                                                     onSave={(value) => handlePatientRename(scan.id, value)}
                                                 />
                                             </td>
+                                            <td style={cellStyle}>
+                                                <button
+                                                    type="button"
+                                                    className="primary-btn"
+                                                    aria-label={`Open scan ${scan.id}`}
+                                                    onClick={() => handleOpenScan(scan.id)}
+                                                >
+                                                    Open scan
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -203,7 +234,27 @@ function Dashboard() {
 
 function EditableScanName({ value, label, onSave }) {
     const [draft, setDraft] = useState(null);
+    const [isSaving, setIsSaving] = useState(false);
     const cancelled = useRef(false);
+    const saving = useRef(false);
+
+    const saveDraft = async () => {
+        if (cancelled.current || saving.current) return;
+        const name = draft.trim();
+        setDraft(null);
+        if (!name || name === value) return;
+
+        saving.current = true;
+        setIsSaving(true);
+        try {
+            await onSave(name);
+        } catch (error) {
+            toast.error(error.message || "Unable to save patient name.");
+        } finally {
+            saving.current = false;
+            setIsSaving(false);
+        }
+    };
 
     if (draft !== null) {
         return (
@@ -211,12 +262,10 @@ function EditableScanName({ value, label, onSave }) {
                 aria-label={label}
                 autoFocus
                 value={draft}
+                maxLength={255}
                 onFocus={(event) => event.target.select()}
                 onChange={(event) => setDraft(event.target.value)}
-                onBlur={() => {
-                    if (!cancelled.current) onSave(draft.trim() || value);
-                    setDraft(null);
-                }}
+                onBlur={saveDraft}
                 onKeyDown={(event) => {
                     if (event.key === "Enter") {
                         event.preventDefault();
@@ -236,6 +285,8 @@ function EditableScanName({ value, label, onSave }) {
         <button
             type="button"
             aria-label={`Edit ${label.toLowerCase()}`}
+            aria-busy={isSaving}
+            disabled={isSaving}
             onClick={() => {
                 cancelled.current = false;
                 setDraft(value);

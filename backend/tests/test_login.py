@@ -25,39 +25,87 @@ def _mock_db_with_user(mock_connect, user=None):
     return mock_db
 
 
-def _make_user(user_id=1, user_name="testuser", password="password123"):
+def _make_user(user_id=1, user_name="testuser", password="password123", verified=True):
     """Fake User row; password is a real Werkzeug hash (login uses check_password_hash)."""
     mock_user = MagicMock()
     mock_user.user_id = user_id
     mock_user.user_name = user_name
-    mock_user.user_password = generate_password_hash(password)
+    mock_user.user_password = (
+        None if password is None else generate_password_hash(password)
+    )
+    mock_user.user_verified = verified
     return mock_user
 
 
+@patch("app.create_session")
 @patch("app.connect")
-def test_login_success(mock_connect, client):
-    _mock_db_with_user(mock_connect, _make_user())
+def test_login_success(mock_connect, mock_create_session, client):
+    user = _make_user(verified=True)
+    _mock_db_with_user(mock_connect, user)
+    session = MagicMock()
+    session.token = "session-token"
+    session.issued_at.timestamp.return_value = 1_800_000_000
+    session.expires_at.timestamp.return_value = 1_800_003_600
+    mock_create_session.return_value = session
 
     response = client.post("/api/login", json={
-        "user_name": "testuser",
+        "user_email": "testuser@example.com",
         "user_password": "password123",
     })
 
     assert response.status_code == 200
     assert response.get_json()["user_id"] == 1
+    mock_create_session.assert_called_once()
 
 
+@patch("app.create_session")
 @patch("app.connect")
-def test_login_wrong_password(mock_connect, client):
-    _mock_db_with_user(mock_connect, _make_user())
+def test_login_unverified_user_rejected(mock_connect, mock_create_session, client):
+    _mock_db_with_user(mock_connect, _make_user(verified=False))
 
     response = client.post("/api/login", json={
-        "user_name": "testuser",
+        "user_email": "testuser@example.com",
+        "user_password": "password123",
+    })
+
+    assert response.status_code == 403
+    assert response.get_json() == {
+        "error": "Email verification required",
+        "code": "EMAIL_NOT_VERIFIED",
+    }
+    mock_create_session.assert_not_called()
+
+
+@patch("app.create_session")
+@patch("app.connect")
+def test_login_wrong_password(mock_connect, mock_create_session, client):
+    _mock_db_with_user(mock_connect, _make_user(verified=False))
+
+    response = client.post("/api/login", json={
+        "user_email": "testuser@example.com",
         "user_password": "wrongpassword123",
     })
 
     assert response.status_code == 401
     assert response.get_json()["error"] == "Invalid password"
+    assert "EMAIL_NOT_VERIFIED" not in response.get_data(as_text=True)
+    mock_create_session.assert_not_called()
+
+
+@patch("app.create_session")
+@patch("app.connect")
+def test_login_null_password_rejected(mock_connect, mock_create_session, client):
+    """Google-only accounts (NULL password) must not authenticate via password login."""
+    _mock_db_with_user(mock_connect, _make_user(password=None, verified=True))
+
+    response = client.post("/api/login", json={
+        "user_email": "google-only@example.com",
+        "user_password": "anypassword123",
+    })
+
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "Invalid password"
+    mock_create_session.assert_not_called()
 
 
 def test_login_missing_body(client):
@@ -68,19 +116,19 @@ def test_login_missing_body(client):
 
 
 @patch("app.connect")
-def test_login_missing_username(mock_connect, client):
+def test_login_missing_email(mock_connect, client):
     response = client.post("/api/login", json={
         "user_password": "password123",
     })
 
     assert response.status_code == 400
-    assert response.get_json()["error"] == "Missing Username"
+    assert response.get_json()["error"] == "Missing Email"
 
 
 @patch("app.connect")
 def test_login_missing_password(mock_connect, client):
     response = client.post("/api/login", json={
-        "user_name": "testuser",
+        "user_email": "testuser@example.com",
     })
 
     assert response.status_code == 400
@@ -88,20 +136,20 @@ def test_login_missing_password(mock_connect, client):
 
 
 @patch("app.connect")
-def test_login_empty_username(mock_connect, client):
+def test_login_empty_email(mock_connect, client):
     response = client.post("/api/login", json={
-        "user_name": "",
+        "user_email": "",
         "user_password": "password123",
     })
 
     assert response.status_code == 400
-    assert response.get_json()["error"] == "Missing Username"
+    assert response.get_json()["error"] == "Missing Email"
 
 
 @patch("app.connect")
 def test_login_empty_password(mock_connect, client):
     response = client.post("/api/login", json={
-        "user_name": "testuser",
+        "user_email": "testuser@example.com",
         "user_password": "",
     })
 
@@ -109,26 +157,34 @@ def test_login_empty_password(mock_connect, client):
     assert response.get_json()["error"] == "Missing Password"
 
 
+@patch("app.create_session")
 @patch("app.connect")
-def test_login_invalid_username(mock_connect, client):
+def test_login_unknown_email(mock_connect, mock_create_session, client):
     _mock_db_with_user(mock_connect, user=None)
 
     response = client.post("/api/login", json={
-        "user_name": "unknownuser",
+        "user_email": "unknown@example.com",
         "user_password": "password123",
     })
 
     assert response.status_code == 401
-    assert response.get_json()["error"] == "Invalid username"
+    assert response.get_json()["error"] == "Invalid email"
+    mock_create_session.assert_not_called()
 
 
+@patch("app.create_session")
 @patch("app.connect")
-def test_login_alt_field_names(mock_connect, client):
-    # Route also accepts username/password aliases.
-    _mock_db_with_user(mock_connect, _make_user())
+def test_login_alt_field_names(mock_connect, mock_create_session, client):
+    # Route also accepts email/password aliases.
+    _mock_db_with_user(mock_connect, _make_user(verified=True))
+    session = MagicMock()
+    session.token = "session-token"
+    session.issued_at.timestamp.return_value = 1_800_000_000
+    session.expires_at.timestamp.return_value = 1_800_003_600
+    mock_create_session.return_value = session
 
     response = client.post("/api/login", json={
-        "username": "testuser",
+        "email": "testuser@example.com",
         "password": "password123",
     })
 
@@ -136,12 +192,18 @@ def test_login_alt_field_names(mock_connect, client):
     assert response.get_json()["user_id"] == 1
 
 
+@patch("app.create_session")
 @patch("app.connect")
-def test_login_success_includes_message(mock_connect, client):
-    _mock_db_with_user(mock_connect, _make_user())
+def test_login_success_includes_message(mock_connect, mock_create_session, client):
+    _mock_db_with_user(mock_connect, _make_user(verified=True))
+    session = MagicMock()
+    session.token = "session-token"
+    session.issued_at.timestamp.return_value = 1_800_000_000
+    session.expires_at.timestamp.return_value = 1_800_003_600
+    mock_create_session.return_value = session
 
     response = client.post("/api/login", json={
-        "user_name": "testuser",
+        "user_email": "testuser@example.com",
         "user_password": "password123",
     })
 

@@ -2,8 +2,9 @@ import React, { useState } from "react";
 import toast from "react-hot-toast";
 import "./LoginPage.css";
 import { useNavigate } from "react-router-dom";
+import GoogleContinueButton from "./GoogleContinueButton";
 
-function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
+function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin, onGoogleSuccess }) {
     const navigate = useNavigate();
     const [fullName, setFullName] = useState("");
     const [email, setEmail] = useState("");
@@ -11,6 +12,22 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
     const [password, setPassword] = useState("");
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [googleLoading, setGoogleLoading] = useState(false);
+
+    const applyGoogleError = (err) => {
+        const message = err?.message || "Google sign-in failed";
+        setError(message);
+        toast.error(message);
+    };
+
+    const handleGoogleSuccess = (data) => {
+        setError(null);
+        if (onGoogleSuccess) {
+            onGoogleSuccess(data);
+        } else if (onSignupSuccess) {
+            onSignupSuccess(data);
+        }
+    };
 
     async function handleSubmit(e) {
         e.preventDefault();
@@ -87,6 +104,7 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
                             <label>Full Name</label>
                             <input
                                 type="text"
+                                autoComplete="name"
                                 value={fullName}
                                 onChange={(e) => setFullName(e.target.value)}
                                 required
@@ -97,6 +115,7 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
                             <label>Email</label>
                             <input
                                 type="email"
+                                autoComplete="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
@@ -107,6 +126,7 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
                             <label>Organization</label>
                             <input
                                 type="text"
+                                autoComplete="organization"
                                 value={organization}
                                 onChange={(e) => setOrganization(e.target.value)}
                                 placeholder="Hospital / University (optional)"
@@ -116,6 +136,7 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
                             <label>Password</label>
                             <input
                                 type="password"
+                                autoComplete="new-password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
@@ -127,13 +148,30 @@ function SignUpPage({ apiBase, onSignupSuccess, onBackToLogin }) {
                                 {error}
                             </p>
                         )}
-                        <button className="submit-btn" type="submit" disabled={loading}>
+                        <button
+                            className="submit-btn"
+                            type="submit"
+                            disabled={loading || googleLoading}
+                        >
                             {loading ? "Signing up..." : "Sign Up"}
                         </button>
+                        <GoogleContinueButton
+                            apiBase={apiBase}
+                            disabled={loading || googleLoading}
+                            onLoadingChange={setGoogleLoading}
+                            onSuccess={handleGoogleSuccess}
+                            onError={applyGoogleError}
+                        />
+                        {googleLoading && (
+                            <p role="status" style={{ marginTop: "0.75rem" }}>
+                                Continuing with Google...
+                            </p>
+                        )}
                         <button
                             type="button"
                             className="secondary-link"
                             onClick={onBackToLogin}
+                            disabled={loading || googleLoading}
                         >
                             Already have an account? Login
                         </button>

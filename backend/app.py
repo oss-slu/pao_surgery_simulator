@@ -1,4 +1,7 @@
 import os
+import json
+from functools import wraps
+from types import SimpleNamespace
 import uuid
 import pydicom 
 import numpy as np 
@@ -8,13 +11,36 @@ from PIL import Image
 from werkzeug.utils import secure_filename 
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file, send_from_directory, g
 from flask_cors import CORS
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from db import connect, initialize_db
 from models import User, Dicom, Label
+from session_tokens import create_session, validate_session, renew_session, revoke_session, SessionAuthenticationError
+from dotenv import load_dotenv
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from mailer import MailError, send_verification_email
+from google_auth import (
+    GoogleAuthConfigError,
+    create_google_user,
+    google_email_is_authoritative,
+    is_unique_violation,
+    verify_google_id_token,
+)
+
+load_dotenv()
+
+def _require_secret_key():
+    secret_key = os.environ.get("SECRET_KEY", "").strip()
+    if not secret_key:
+        raise RuntimeError(
+            "SECRET_KEY is not set. Copy backend/.env.example to backend/.env and set SECRET_KEY."
+        )
+    return secret_key
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = _require_secret_key()
 CORS(app)
 
 # Initialize database on startup
@@ -29,6 +55,77 @@ else:
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+def _request_session_token():
+    data = request.get_json(silent=True)
+    if isinstance(data, dict) and "session_token" in data:
+        return data["session_token"]
+    # Multipart uploads can carry the token in a JSON metadata form field.
+    if request.mimetype == "multipart/form-data" and "metadata" in request.form:
+        try:
+            metadata = json.loads(request.form["metadata"])
+        except (TypeError, ValueError):
+            raise SessionAuthenticationError("SESSION_INVALID", "Invalid session metadata") from None
+        if not isinstance(metadata, dict):
+            raise SessionAuthenticationError("SESSION_INVALID", "Invalid session metadata")
+        if "session_token" in metadata:
+            return metadata["session_token"]
+    # Existing GET clients can use cookies; write/POST operations require JSON.
+    if request.method == "GET":
+        return request.cookies.get("session_token")
+    return None
+
+
+def require_session(view):
+    @wraps(view)
+    def authenticated_view(*args, **kwargs):
+        try:
+            token = _request_session_token()
+            with connect() as db:
+                authenticated = validate_session(db, token)
+        except SessionAuthenticationError as error:
+            app.logger.warning("Session authentication failed with code %s", error.code)
+            response = jsonify({"error": "Invalid or expired session", "code": error.code})
+            response.headers["Cache-Control"] = "no-store"
+            return response, 401
+        except Exception:
+            app.logger.exception("Failed to validate login session")
+            return jsonify({"error": "Unable to validate session"}), 500
+        g.authenticated_session = authenticated
+        g.user_id = authenticated.user_id
+        return view(*args, **kwargs)
+    return authenticated_view
+
+def require_scan_owner(view):
+    """Run after require_session, before accessing a scan's files or labels."""
+    @wraps(view)
+    def owned_scan_view(*args, **kwargs):
+        upload_id = kwargs.get("upload_id", kwargs.get("scan_id"))
+        # Do not authorize one ID and then sanitize it into another file path.
+        if not upload_id or upload_id != secure_filename(upload_id):
+            return jsonify({"error": "Invalid upload ID"}), 400
+        try:
+            with connect() as db:
+                scan = db.query(Dicom).filter_by(upload_id=upload_id).first()
+                if scan is None:
+                    return jsonify({"error": "Scan not found"}), 404
+                if scan.user_id != g.user_id:
+                    return jsonify({
+                        "error": "You do not have access to this scan",
+                        "code": "ACCESS_DENIED",
+                    }), 403
+        except Exception:
+            app.logger.exception("Failed to verify scan ownership")
+            return jsonify({"error": "Unable to verify scan ownership"}), 500
+        return view(*args, **kwargs)
+    return owned_scan_view
+VERIFY_TOKEN_MAX_AGE = 24 * 60 * 60
+
+def _verify_serializer():
+    return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="email-verify")
+
+def make_verification_token(user):
+    return _verify_serializer().dumps({"uid": user.user_id, "email": user.user_email})
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'dcm'
 
@@ -42,7 +139,7 @@ def read_patient_name(file_paths):
             raw_name = str(getattr(dataset, "PatientName", "") or "")
             patient_name = " ".join(raw_name.replace("^", " ").split())
             if patient_name:
-                return patient_name
+                return patient_name[:255]  # Truncate to 255 characters
         except Exception:
             # Missing or unreadable metadata must not fail a successful upload.
             continue
@@ -51,8 +148,8 @@ def read_patient_name(file_paths):
 @app.route("/api/signup", methods=["POST"])
 def user_signup():
     try:
-        data = request.get_json()
-        if not data:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or not data:
             return jsonify({"error": "Missing data"}), 400
     
         user_name = data.get("user_name")
@@ -78,42 +175,347 @@ def user_signup():
             if existing_email:
                 return jsonify({"error": "Email has been used"}), 400
 
-            new_user = User( user_name=user_name, user_email=user_email, user_organization=user_organization, user_password=user_password)
+            new_user = User( user_name=user_name, user_email=user_email, user_verified=False, user_organization=user_organization, user_password=user_password)
             db.add(new_user)
             db.flush()
-            return jsonify({"message": "User Account", "id": new_user.user_id}), 201
+            # Capture before session closes; commit happens when this block exits.
+            user_id = new_user.user_id
+            mail_to = new_user.user_email
+
+        try:
+            token = make_verification_token(
+                SimpleNamespace(user_id=user_id, user_email=mail_to)
+            )
+            send_verification_email(mail_to, token)
+        except MailError:
+            app.logger.exception("Failed to send verification email after signup")
+            return jsonify({
+                "message": (
+                    "Account created, but the verification email could not be sent. "
+                    "You can request another verification email."
+                ),
+                "id": user_id,
+            }), 201
+
+        return jsonify({
+            "message": (
+                "Account created. Please verify your email. "
+                "A verification email has been sent."
+            ),
+            "id": user_id,
+        }), 201
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/login", methods=["POST"])
 def user_login():
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "Missing data"}), 400
-    
-    user_name = data.get("user_name") or data.get("username")
+
+    user_email = data.get("user_email") or data.get("email")
     user_password = data.get("user_password") or data.get("password")
 
-    if not user_name:
-        return jsonify({"error": "Missing Username"}), 400
-    
+    if not user_email:
+        return jsonify({"error": "Missing Email"}), 400
+
     if not user_password:
         return jsonify({"error": "Missing Password"}), 400
-    
-    with connect() as db:
-        user = db.query(User).filter_by(user_name=user_name).first()
-        if not user:
-            return jsonify({"error": "Invalid username"}), 401
-        else: 
-            if not check_password_hash(user.user_password, user_password):
+
+    try:
+        with connect() as db:
+            user = db.query(User).filter_by(user_email=user_email).first()
+            if not user:
+                return jsonify({"error": "Invalid email"}), 401
+
+            # Google-only accounts have NULL password; reject password login without raising.
+            if not user.user_password or not check_password_hash(
+                user.user_password, user_password
+            ):
                 return jsonify({"error": "Invalid password"}), 401
-            else:
-                return jsonify({"message": "Login successful", "user_id": user.user_id, "user_name": user.user_name}), 200
-            
-@app.route("/api/users/<int:user_id>/scans", methods=["GET"])
+
+            if not user.user_verified:
+                return jsonify({
+                    "error": "Email verification required",
+                    "code": "EMAIL_NOT_VERIFIED",
+                }), 403
+
+            session = create_session(db, user.user_id)
+            response_data = {
+                "message": "Login successful",
+                "user_id": user.user_id,
+                "user_name": user.user_name,
+                "session_token": session.token,
+                "issued_at": int(session.issued_at.timestamp()),
+                "expires_at": int(session.expires_at.timestamp()),
+            }
+
+        response = jsonify(response_data)
+        response.headers["Cache-Control"] = "no-store"
+        return response, 200
+    except Exception:
+        app.logger.exception("Failed to create login session")
+        return jsonify({"error": "Unable to create login session"}), 500
+
+
+def _google_login_response(user, session):
+    response = jsonify({
+        "message": "Login successful",
+        "user_id": user.user_id,
+        "user_name": user.user_name,
+        "session_token": session.token,
+        "issued_at": int(session.issued_at.timestamp()),
+        "expires_at": int(session.expires_at.timestamp()),
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response, 200
+
+
+def _email_not_verified_response():
+    return jsonify({
+        "error": "Email verification required",
+        "code": "EMAIL_NOT_VERIFIED",
+    }), 403
+
+
+@app.route("/api/auth/google", methods=["POST"])
+def google_auth():
+    """Authenticate with a Google Identity Services ID token (never stored)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Missing data"}), 400
+
+    credential = data.get("credential") or data.get("id_token")
+    if not isinstance(credential, str) or not credential.strip():
+        return jsonify({"error": "Missing Google credential"}), 400
+
+    try:
+        idinfo = verify_google_id_token(credential.strip())
+    except GoogleAuthConfigError:
+        app.logger.error("Google sign-in rejected: GOOGLE_CLIENT_ID is not configured")
+        return jsonify({"error": "Google sign-in is unavailable"}), 503
+    except Exception:
+        # Token material must never be logged.
+        app.logger.warning("Google ID token verification failed")
+        return jsonify({"error": "Invalid Google credential"}), 401
+
+    google_sub = idinfo.get("sub")
+    email = idinfo.get("email")
+    if not isinstance(google_sub, str) or not google_sub:
+        return jsonify({"error": "Invalid Google credential"}), 401
+    if not isinstance(email, str) or "@" not in email:
+        return jsonify({"error": "Invalid Google credential"}), 401
+
+    authoritative = google_email_is_authoritative(idinfo)
+    pending_verification_email = None
+
+    # Retry once if a concurrent request wins the unique(google_sub|email) race.
+    for attempt in range(2):
+        try:
+            with connect() as db:
+                user = db.query(User).filter_by(google_sub=google_sub).first()
+                if user is None:
+                    email_owner = db.query(User).filter_by(user_email=email).first()
+                    if email_owner is not None:
+                        # Never auto-link by email; do not reveal account internals.
+                        return jsonify({
+                            "error": (
+                                "Unable to sign in with Google for this email. "
+                                "Sign in with your existing password instead."
+                            ),
+                            "code": "ACCOUNT_CONFLICT",
+                        }), 409
+
+                    user = create_google_user(
+                        db,
+                        google_sub=google_sub,
+                        email=email,
+                        verified=authoritative,
+                    )
+                    if not user.user_verified:
+                        pending_verification_email = (
+                            user.user_id,
+                            user.user_email,
+                        )
+
+                if not user.user_verified:
+                    # Commit any new unverified account before leaving the block.
+                    break
+
+                session = create_session(db, user.user_id)
+                return _google_login_response(user, session)
+        except IntegrityError as exc:
+            if attempt == 0 and is_unique_violation(exc):
+                continue
+            app.logger.exception("Failed to complete Google authentication")
+            return jsonify({"error": "Unable to create login session"}), 500
+        except Exception:
+            app.logger.exception("Failed to complete Google authentication")
+            return jsonify({"error": "Unable to create login session"}), 500
+
+    if pending_verification_email is not None:
+        user_id, mail_to = pending_verification_email
+        try:
+            token = make_verification_token(
+                SimpleNamespace(user_id=user_id, user_email=mail_to)
+            )
+            send_verification_email(mail_to, token)
+        except MailError:
+            app.logger.exception(
+                "Failed to send verification email after Google sign-in"
+            )
+        return _email_not_verified_response()
+
+    # Existing Google account that still needs email verification.
+    return _email_not_verified_response()
+
+
+@app.route("/api/verify_email", methods=["POST"])
+def verify_email():
+    data = request.get_json(silent=True)
+    token = data.get("token") if isinstance(data, dict) else None
+    if not isinstance(token, str) or not token:
+        return jsonify({"error": "Missing token"}), 400
+
+    try:
+        payload = _verify_serializer().loads(token, max_age=VERIFY_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({
+            "error": "Verification link has expired",
+            "code": "token_expired",
+        }), 400
+    except BadSignature:
+        return jsonify({
+            "error": "Invalid verification link",
+            "code": "token_invalid",
+        }), 400
+
+    if not isinstance(payload, dict):
+        return jsonify({
+            "error": "Invalid verification link",
+            "code": "token_invalid",
+        }), 400
+
+    try:
+        with connect() as db:
+            user = db.query(User).filter_by(user_id=payload.get("uid")).first()
+            if not user or user.user_email != payload.get("email"):
+                return jsonify({
+                    "error": "Invalid verification link",
+                    "code": "token_invalid",
+                }), 400
+            user.user_verified = True
+        return jsonify({"message": "Email verified"}), 200
+    except Exception:
+        app.logger.exception("Failed to verify email")
+        return jsonify({"error": "An internal error has occurred"}), 500
+
+
+@app.route("/api/resend_verification", methods=["POST"])
+def resend_verification():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Missing data"}), 400
+
+    email = data.get("email")
+    if not isinstance(email, str) or not email.strip():
+        return jsonify({"error": "Missing email"}), 400
+    email = email.strip()
+
+    generic_message = {
+        "message": (
+            "If an unverified account exists for that email, "
+            "a verification email has been sent."
+        )
+    }
+
+    try:
+        with connect() as db:
+            user = db.query(User).filter_by(user_email=email).first()
+            if not user:
+                return jsonify(generic_message), 200
+            if user.user_verified:
+                return jsonify({"message": "Account is already verified"}), 200
+
+            token = make_verification_token(user)
+            send_verification_email(user.user_email, token)
+        return jsonify(generic_message), 200
+    except MailError:
+        app.logger.exception("Failed to send verification email")
+        return jsonify({"error": "Unable to send verification email"}), 500
+    except Exception:
+        app.logger.exception("Failed to resend verification email")
+        return jsonify({"error": "An internal error has occurred"}), 500
+
+
+@app.route("/api/logout", methods=["POST"])
+def user_logout():
+    try:
+        token = _request_session_token()
+        with connect() as db:
+            revoke_session(db, token)
+        response = jsonify({"message": "Logged out successfully"})
+        response.headers["Cache-Control"] = "no-store"
+        return response, 200
+    except SessionAuthenticationError as error:
+        safe_errors = {
+            "SESSION_REQUIRED": "Session token is required",
+            "SESSION_INVALID": "Invalid session token",
+            "SESSION_EXPIRED": "Session token expired",
+        }
+        response = jsonify({
+            "error": safe_errors.get(error.code, "Authentication failed"),
+            "code": error.code
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response, 401
+    except Exception:
+        app.logger.exception("Failed to revoke login session")
+        return jsonify({"error": "Unable to log out"}), 500
+
+
+@app.route("/api/session/refresh", methods=["POST"])
+def refresh_session():
+    try:
+        token = _request_session_token()
+        with connect() as db:
+            session = renew_session(db, token)
+            response_data = {
+                "session_token": session.token,
+                "issued_at": int(session.issued_at.timestamp()),
+                "expires_at": int(session.expires_at.timestamp()),
+            }
+
+        response = jsonify(response_data)
+        response.headers["Cache-Control"] = "no-store"
+        return response, 200
+    except SessionAuthenticationError as error:
+        safe_errors = {
+            "SESSION_REQUIRED": "Session token is required",
+            "SESSION_INVALID": "Invalid session token",
+            "SESSION_EXPIRED": "Session token expired",
+        }
+        response = jsonify({
+            "error": safe_errors.get(error.code, "Authentication failed"),
+            "code": error.code
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response, 401
+    except Exception:
+        app.logger.exception("Failed to renew login session")
+        return jsonify({"error": "Unable to renew session"}), 500
+              
+@app.route("/api/users/<int:user_id>/scans", methods=["GET", "POST"])
+@require_session
 def list_user_scans(user_id):
     """List database uploads and saved DICOM filenames for the requested user."""
+    if user_id != g.user_id:
+        return jsonify({
+            "error": "You do not have access to this user's scans",
+            "code": "ACCESS_DENIED",
+        }), 403
+
     try:
         with connect() as db:
             if db.query(User).filter_by(user_id=user_id).first() is None:
@@ -121,7 +523,7 @@ def list_user_scans(user_id):
 
             uploads = (
                 db.query(Dicom)
-                .filter_by(user_id=user_id)
+                .filter_by(user_id=g.user_id)
                 .order_by(Dicom.upload_date.desc(), Dicom.upload_id.asc())
                 .all()
             )
@@ -146,13 +548,24 @@ def list_user_scans(user_id):
                             and allowed_file(entry.name)
                         )
                 except FileNotFoundError:
-                    # Keep the database record visible if its files were removed.
                     files = []
+
+                if upload.patient_name is None:
+                    patient_name = read_patient_name(
+                        [os.path.join(upload_path, name) for name in files]
+                    )
+                    # A concurrent rename must win over metadata recovery.
+                    db.query(Dicom).filter(
+                        Dicom.upload_id == upload.upload_id,
+                        Dicom.patient_name.is_(None),
+                    ).update({Dicom.patient_name: patient_name}, synchronize_session=False)
+                    db.refresh(upload)
 
                 scans.append({
                     "upload_id": upload.upload_id,
                     "user_id": upload.user_id,
                     "upload_date": upload.upload_date.isoformat() if upload.upload_date else None,
+                    "patient_name": upload.patient_name,
                     "files": files,
                 })
 
@@ -160,6 +573,27 @@ def list_user_scans(user_id):
     except Exception:
         app.logger.exception("Failed to list user scans")
         return jsonify({"error": "Failed to list user scans"}), 500
+
+@app.route("/api/scans/<scan_id>", methods=["PATCH"])
+@require_session
+@require_scan_owner
+def rename_scan_patient(scan_id):
+    data = request.get_json(silent=True)
+    patient_name = data.get("patient_name") if isinstance(data, dict) else None
+    if not isinstance(patient_name, str) or not 1 <= len(patient_name.strip()) <= 255:
+        return jsonify({"error": "Patient name must contain 1 to 255 characters"}), 400
+    patient_name = patient_name.strip()
+
+    try:
+        with connect() as db:
+            scan = db.query(Dicom).filter_by(upload_id=scan_id, user_id=g.user_id).first()
+            if scan is None:
+                return jsonify({"error": "Scan not found"}), 404
+            scan.patient_name = patient_name
+        return jsonify({"upload_id": scan_id, "patient_name": patient_name}), 200
+    except Exception:
+        app.logger.exception("Failed to save patient name")
+        return jsonify({"error": "Unable to save patient name"}), 500
 
 
 def _dicom_slice_sort_key(item):
@@ -231,6 +665,7 @@ def numpy_volume_to_vtk_image(volume: np.ndarray, spacing):
     return image_data
 
 @app.route("/api/upload_dicom", methods=["POST"])
+@require_session
 def upload_dicom():
     if "files" not in request.files:
         return jsonify({"error": "No files part"}), 400
@@ -239,9 +674,8 @@ def upload_dicom():
     if not files:
         return jsonify({"error": "No files uploaded"}), 400
     
-    user_id = request.form.get("user_id")
-    if not user_id:
-        return jsonify({"error": "Missing user id"}), 400
+    # Ownership comes exclusively from the validated session.
+    user_id = g.user_id
 
     upload_id = str(uuid.uuid4())
     upload_path = os.path.join(UPLOAD_FOLDER, upload_id)
@@ -260,14 +694,15 @@ def upload_dicom():
         return jsonify({"error": "No valid .dcm files uploaded"}), 400
     
     try:
+        patient_name = read_patient_name(saved_paths)
         with connect() as db:
-            new_upload = Dicom(upload_id = upload_id, user_id = int(user_id))
+            new_upload = Dicom(upload_id=upload_id, user_id=user_id, patient_name=patient_name)
             db.add(new_upload)
             db.flush()
         return jsonify({
             "message": "Files uploaded",
             "upload_id": upload_id,
-            "patient_name": read_patient_name(saved_paths),
+            "patient_name": patient_name,
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -295,43 +730,71 @@ def _parse_coordinates(data):
         return None
 
 @app.route("/api/scans/<scan_id>/labels", methods=["POST"])
+@require_session
+@require_scan_owner
 def create_label(scan_id):
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "Missing data"}), 400
 
-    name = data.get("name")
-    coordinates = _parse_coordinates(data)
-    if not isinstance(name, str) or not name.strip():
-        return jsonify({"error": "Name is required"}), 400
-    if coordinates is None:
-        return jsonify({"error": "Coordinates must include numeric x, y, and z values"}), 400
+    batch = "labels" in data
+    label_data = data.get("labels") if batch else [data]
+    if not isinstance(label_data, list) or not label_data:
+        return jsonify({"error": "Labels must be a non-empty list"}), 400
+
+    parsed_labels = []
+    for index, item in enumerate(label_data):
+        if not isinstance(item, dict):
+            return jsonify({"error": f"Label {index + 1} must be an object"}), 400
+        name = item.get("name")
+        coordinates = _parse_coordinates(item)
+        if not isinstance(name, str) or not name.strip():
+            return jsonify({"error": f"Label {index + 1}: name is required"}), 400
+        if coordinates is None:
+            return jsonify({
+                "error": (
+                    f"Label {index + 1}: coordinates must include numeric "
+                    "x, y, and z values"
+                )
+            }), 400
+        parsed_labels.append((item, name.strip(), coordinates))
 
     try:
         with connect() as db:
             scan = db.query(Dicom).filter_by(upload_id=scan_id).first()
             if not scan:
                 return jsonify({"error": "Scan not found"}), 404
-            label = Label(
-                name=name.strip(),
-                description=data.get("description") or "",
-                x=coordinates[0],
-                y=coordinates[1],
-                z=coordinates[2],
-                body_part_id=data.get("body_part_id"),
-                scan_2d_id=data.get("scan_2d_id"),
-                scan_3d_id=data.get("scan_3d_id") or scan_id,
-                scan_id=scan_id,
-                visible=data.get("visible", True),
-            )
-            db.add(label)
+            labels = [
+                Label(
+                    name=name,
+                    description=item.get("description") or "",
+                    x=coordinates[0],
+                    y=coordinates[1],
+                    z=coordinates[2],
+                    body_part_id=item.get("body_part_id"),
+                    scan_2d_id=item.get("scan_2d_id"),
+                    scan_3d_id=item.get("scan_3d_id") or scan_id,
+                    scan_id=scan_id,
+                    visible=item.get("visible", True),
+                )
+                for item, name, coordinates in parsed_labels
+            ]
+            if batch:
+                db.add_all(labels)
+                db.flush()
+                return jsonify({"labels": [_label_response(label) for label in labels]}), 201
+
+            db.add(labels[0])
             db.flush()
-            return jsonify(_label_response(label)), 201
+            return jsonify(_label_response(labels[0])), 201
     except Exception:
         app.logger.exception("Failed to create label for scan_id=%s", scan_id)
         return jsonify({"error": "An internal error has occurred"}), 500
 
 @app.route("/api/scans/<scan_id>/labels", methods=["GET"])
+@app.route("/api/scans/<scan_id>/labels/list", methods=["POST"])
+@require_session
+@require_scan_owner
 def list_labels(scan_id):
     try:
         with connect() as db:
@@ -342,6 +805,8 @@ def list_labels(scan_id):
         return jsonify({"error": "An internal error has occurred"}), 500
 
 @app.route("/api/scans/<scan_id>/labels/<int:label_id>/toggle", methods=["PATCH"])
+@require_session
+@require_scan_owner
 def toggle_label(scan_id, label_id):
     try:
         with connect() as db:
@@ -355,7 +820,9 @@ def toggle_label(scan_id, label_id):
         app.logger.exception("Failed to toggle label visibility for scan_id=%s, label_id=%s", scan_id, label_id)
         return jsonify({"error": "An internal error has occurred"}), 500
 
-@app.route("/api/render_dicom/<upload_id>", methods=["GET"])
+@app.route("/api/render_dicom/<upload_id>", methods=["GET", "POST"])
+@require_session
+@require_scan_owner
 def render_dicom(upload_id):
     # 1. Sanitize the user input
     safe_upload_id = secure_filename(upload_id)
@@ -392,7 +859,9 @@ def render_dicom(upload_id):
     # 4. Use Flask's safe send_from_directory instead of send_file
     return send_from_directory(dicom_dir, output_filename, mimetype="application/octet-stream")
 
-@app.route("/api/render_dicom/<upload_id>/metadata", methods=["GET"])
+@app.route("/api/render_dicom/<upload_id>/metadata", methods=["GET", "POST"])
+@require_session
+@require_scan_owner
 def render_dicom_metadata(upload_id):
     """Extract physical dimensions and metadata from the DICOM series."""
 
@@ -421,9 +890,14 @@ def render_dicom_metadata(upload_id):
         rows = int(ds.Rows) if hasattr(ds, "Rows") else None
         columns = int(ds.Columns) if hasattr(ds, "Columns") else None
 
-        pixel_spacing = getattr(ds, "PixelSpacing", [None, None])
-        slice_thickness = getattr(ds, "SliceThickness", None)
-
+        # Convert pydicom MultiValue/DS values to native JSON-compatible numbers.
+        pixel_spacing = [
+            float(value) if value is not None else None
+            for value in getattr(ds, "PixelSpacing", [None, None])
+        ]
+        raw_slice_thickness = getattr(ds, "SliceThickness", None)
+        slice_thickness = float(raw_slice_thickness) if raw_slice_thickness is not None else None
+        
         spacing_between_slices = None
         if hasattr(ds, "SpacingBetweenSlices"):
             spacing_between_slices = float(ds.SpacingBetweenSlices)
@@ -511,7 +985,9 @@ def render_dicom_metadata(upload_id):
 
 
 
-@app.route("/api/download_dicom/<upload_id>", methods=["GET"])
+@app.route("/api/download_dicom/<upload_id>", methods=["GET", "POST"])
+@require_session
+@require_scan_owner
 def download_dicom(upload_id):
     safe_upload_id = secure_filename(upload_id)
     if not safe_upload_id:
@@ -545,17 +1021,28 @@ def download_dicom(upload_id):
         return jsonify({"error": f"Failed to create ZIP archive: {e}"}), 500
 
 # for list of active upload sessions
-@app.route("/api/sessions", methods=["GET"])
+@app.route("/api/sessions", methods=["GET", "POST"])
+@require_session
 def list_sessions():
     try:
-        base_uploads = os.path.abspath(UPLOAD_FOLDER) 
+        base_uploads = os.path.realpath(UPLOAD_FOLDER)
         if not os.path.exists(base_uploads): 
             return jsonify({"sessions": []}), 200
-        
-        sessions = [
-            name for name in os.listdir(base_uploads)
-            if os.path.isdir(os.path.join(base_uploads, name))
-        ]
+
+        with connect() as db:
+            owned_uploads = db.query(Dicom).filter_by(user_id=g.user_id).all()
+            sessions = []
+            for upload in owned_uploads:
+                upload_id = upload.upload_id
+                if not upload_id or upload_id != secure_filename(upload_id):
+                    continue
+                upload_path = os.path.realpath(os.path.join(base_uploads, upload_id))
+                if (
+                    upload_path != base_uploads
+                    and os.path.commonpath([base_uploads, upload_path]) == base_uploads
+                    and os.path.isdir(upload_path)
+                ):
+                    sessions.append(upload_id)
         
         return jsonify({"sessions": sessions}), 200
     
@@ -563,6 +1050,9 @@ def list_sessions():
         app.logger.exception("Failed to list sessions")
         return jsonify({"error": "Failed to list sessions"}), 500
 
+@app.route("/api/health", methods=["GET"])
+def health_check():
+    return jsonify({"message": "Surgery Simulator API is running"}), 200
 
 @app.errorhandler(404)
 def not_found(error):
@@ -574,4 +1064,3 @@ def internal_error(error):
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
-
