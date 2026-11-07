@@ -39,7 +39,7 @@ function GoogleContinueButton({
 
     setConfigError("");
 
-    (async () => {
+    void (async () => {
       try {
         await loadGoogleIdentityScript();
         if (cancelled || !hostRef.current || !window.google?.accounts?.id) {
