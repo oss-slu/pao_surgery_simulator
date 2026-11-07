@@ -26,7 +26,7 @@ PAO Simulation Surgery is a web based application designed to establish an inter
 - See the installation guide for more details.
 
 ### Contribution
-We Welcome contributions from the community
+We welcome contributions from the community
 
 
 
