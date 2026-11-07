@@ -614,33 +614,56 @@ def create_label(scan_id):
     if not isinstance(data, dict):
         return jsonify({"error": "Missing data"}), 400
 
-    name = data.get("name")
-    coordinates = _parse_coordinates(data)
-    if not isinstance(name, str) or not name.strip():
-        return jsonify({"error": "Name is required"}), 400
-    if coordinates is None:
-        return jsonify({"error": "Coordinates must include numeric x, y, and z values"}), 400
+    batch = "labels" in data
+    label_data = data.get("labels") if batch else [data]
+    if not isinstance(label_data, list) or not label_data:
+        return jsonify({"error": "Labels must be a non-empty list"}), 400
+
+    parsed_labels = []
+    for index, item in enumerate(label_data):
+        if not isinstance(item, dict):
+            return jsonify({"error": f"Label {index + 1} must be an object"}), 400
+        name = item.get("name")
+        coordinates = _parse_coordinates(item)
+        if not isinstance(name, str) or not name.strip():
+            return jsonify({"error": f"Label {index + 1}: name is required"}), 400
+        if coordinates is None:
+            return jsonify({
+                "error": (
+                    f"Label {index + 1}: coordinates must include numeric "
+                    "x, y, and z values"
+                )
+            }), 400
+        parsed_labels.append((item, name.strip(), coordinates))
 
     try:
         with connect() as db:
             scan = db.query(Dicom).filter_by(upload_id=scan_id).first()
             if not scan:
                 return jsonify({"error": "Scan not found"}), 404
-            label = Label(
-                name=name.strip(),
-                description=data.get("description") or "",
-                x=coordinates[0],
-                y=coordinates[1],
-                z=coordinates[2],
-                body_part_id=data.get("body_part_id"),
-                scan_2d_id=data.get("scan_2d_id"),
-                scan_3d_id=data.get("scan_3d_id") or scan_id,
-                scan_id=scan_id,
-                visible=data.get("visible", True),
-            )
-            db.add(label)
+            labels = [
+                Label(
+                    name=name,
+                    description=item.get("description") or "",
+                    x=coordinates[0],
+                    y=coordinates[1],
+                    z=coordinates[2],
+                    body_part_id=item.get("body_part_id"),
+                    scan_2d_id=item.get("scan_2d_id"),
+                    scan_3d_id=item.get("scan_3d_id") or scan_id,
+                    scan_id=scan_id,
+                    visible=item.get("visible", True),
+                )
+                for item, name, coordinates in parsed_labels
+            ]
+            if batch:
+                db.add_all(labels)
+                db.flush()
+                return jsonify({"labels": [_label_response(label) for label in labels]}), 201
+
+            db.add(labels[0])
             db.flush()
-            return jsonify(_label_response(label)), 201
+            return jsonify(_label_response(labels[0])), 201
     except Exception:
         app.logger.exception("Failed to create label for scan_id=%s", scan_id)
         return jsonify({"error": "An internal error has occurred"}), 500
