@@ -9,8 +9,22 @@ import { clearAuthStorage, renderWithRouter, seedAuthStorage } from '../test-uti
 
 jest.mock('../../components/VTKViewer', () => ({
   __esModule: true,
-  default: function VTKViewerStub({ modelUrl }) {
-    return <div data-testid="vtk-model-url">{modelUrl}</div>;
+  default: function VTKViewerStub({ modelUrl, onMarkerAdded }) {
+    return (
+      <>
+        <div data-testid="vtk-model-url">{modelUrl}</div>
+        <button
+          type="button"
+          onClick={() => onMarkerAdded({
+            id: `marker-${Math.random()}`,
+            coordinates: { x: 1, y: 2, z: 3 },
+            color: '#ff0000',
+          })}
+        >
+          Add test marker
+        </button>
+      </>
+    );
   },
 }));
 
@@ -100,4 +114,57 @@ test('redirects to the full-page viewer and starts rendering after upload', asyn
   );
   expect(screen.getByLabelText('Model ID new-scan-7')).toBeInTheDocument();
   expect(screen.queryByText('Private Patient')).not.toBeInTheDocument();
+});
+
+test('uploads all drawn marker coordinates in one label request', async () => {
+  const user = userEvent.setup();
+  seedAuthStorage({ userId: '9', userName: 'surgeon' });
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ label_id: 1 }),
+  });
+
+  renderWithRouter(
+    <Routes>
+      <Route path="/viewer/:uploadId" element={<Viewer />} />
+    </Routes>,
+    { route: '/viewer/scan-42' }
+  );
+  await user.click(screen.getByRole('button', { name: 'Add test marker' }));
+  await user.click(screen.getByRole('button', { name: 'Add test marker' }));
+  await user.click(screen.getByRole('button', { name: 'Upload markers (2)' }));
+
+  expect(await screen.findByRole('status')).toHaveTextContent('Uploaded 2 marker(s).');
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(global.fetch).toHaveBeenCalledWith(
+    `${API_BASE}/api/scans/scan-42/labels`,
+    expect.objectContaining({
+      method: 'POST',
+      body: expect.any(String),
+    })
+  );
+  const request = global.fetch.mock.calls[0][1];
+  const body = JSON.parse(request.body);
+  expect(body).toEqual({
+    session_token: 'test-session-token',
+    labels: [
+      {
+        name: 'Marker',
+        description: 'Drawn marker (#ff0000)',
+        coordinates: { x: 1, y: 2, z: 3 },
+        scan_2d_id: 'scan-42',
+        scan_3d_id: 'scan-42',
+        visible: true,
+      },
+      {
+        name: 'Marker',
+        description: 'Drawn marker (#ff0000)',
+        coordinates: { x: 1, y: 2, z: 3 },
+        scan_2d_id: 'scan-42',
+        scan_3d_id: 'scan-42',
+        visible: true,
+      },
+    ],
+  });
+  expect(screen.getByRole('button', { name: 'Upload markers (0)' })).toBeDisabled();
 });

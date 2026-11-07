@@ -47,6 +47,66 @@ def test_create_label_stores_scan_and_coordinates(mock_connect, authenticated_cl
 
 
 @patch("app.connect")
+def test_create_labels_in_one_request(mock_connect, authenticated_client):
+    session = _session(mock_connect)
+    session.query.return_value.filter_by.return_value.first.return_value = Dicom(
+        upload_id="scan-1", user_id=1
+    )
+
+    def assign_ids(labels):
+        for label_id, label in enumerate(labels, start=1):
+            label.label_id = label_id
+
+    session.add_all.side_effect = assign_ids
+
+    response = authenticated_client.post(
+        "/api/scans/scan-1/labels",
+        json={
+            "labels": [
+                {"name": "Marker", "coordinates": {"x": 1, "y": 2, "z": 3}},
+                {"name": "Marker", "coordinates": {"x": 4, "y": 5, "z": 6}},
+            ]
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.get_json()
+    assert [label["label_id"] for label in body["labels"]] == [1, 2]
+    assert [label["coordinates"] for label in body["labels"]] == [
+        {"x": 1.0, "y": 2.0, "z": 3.0},
+        {"x": 4.0, "y": 5.0, "z": 6.0},
+    ]
+    session.add_all.assert_called_once()
+    session.flush.assert_called_once()
+    session.add.assert_not_called()
+
+
+@patch("app.connect")
+def test_create_labels_rejects_invalid_item_without_inserting(
+    mock_connect, authenticated_client
+):
+    session = _session(mock_connect)
+    session.query.return_value.filter_by.return_value.first.return_value = Dicom(
+        upload_id="scan-1", user_id=1
+    )
+
+    response = authenticated_client.post(
+        "/api/scans/scan-1/labels",
+        json={
+            "labels": [
+                {"name": "Marker", "coordinates": {"x": 1, "y": 2, "z": 3}},
+                {"name": "", "coordinates": {"x": 4, "y": 5, "z": 6}},
+            ]
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Label 2" in response.get_json()["error"]
+    session.add_all.assert_not_called()
+    session.add.assert_not_called()
+
+
+@patch("app.connect")
 def test_list_labels_is_scoped_to_scan(mock_connect, authenticated_client):
     session = _session(mock_connect)
     session.query.return_value.filter_by.return_value.first.return_value = Dicom(
