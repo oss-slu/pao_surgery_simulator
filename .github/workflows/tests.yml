@@ -4,6 +4,12 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -23,6 +29,25 @@ jobs:
 
       - name: Run pytest
         run: python -m pytest -v
+      - name: Generate Backend SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: backend/
+          format: spdx-json
+          output-file: pao-backend-sbom.spdx.json
+          upload-artifact: false
+
+      - name: Upload Backend SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: pao-backend-sbom
+          path: pao-backend-sbom.spdx.json
+
+      - name: Attest Backend SBOM
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/attest@v4
+        with:
+          subject-path: pao-backend-sbom.spdx.json
 
   frontend:
     runs-on: ubuntu-latest
@@ -44,3 +69,22 @@ jobs:
 
       - name: Run Jest
         run: npm run test:ci
+      - name: Generate Frontend SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: frontend/
+          format: spdx-json
+          output-file: pao-frontend-sbom.spdx.json
+          upload-artifact: false
+
+      - name: Upload Frontend SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: pao-frontend-sbom
+          path: pao-frontend-sbom.spdx.json
+
+      - name: Attest Frontend SBOM
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/attest@v4
+        with:
+          subject-path: pao-frontend-sbom.spdx.json
