@@ -36,38 +36,41 @@ function Viewer() {
         isUploadingMarkersRef.current = true;
         setIsUploadingMarkers(true);
         setLabelStatus(`Uploading ${markersToUpload.length} marker(s)...`);
+        let uploadedCount = 0;
 
         try {
-            const response = await sessionFetch(
-                `${API_BASE}/api/scans/${encodeURIComponent(uploadId)}/labels`,
-                {
-                    method: "POST",
-                    body: {
-                        labels: markersToUpload.map((marker) => ({
+            for (const marker of markersToUpload) {
+                const response = await sessionFetch(
+                    `${API_BASE}/api/scans/${encodeURIComponent(uploadId)}/labels`,
+                    {
+                        method: "POST",
+                        body: {
                             name: "Marker",
                             description: `Drawn marker (${marker.color})`,
                             coordinates: marker.coordinates,
                             scan_2d_id: uploadId,
                             scan_3d_id: uploadId,
                             visible: true,
-                        })),
-                    },
+                        },
+                    }
+                );
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || `Marker upload failed (${response.status})`);
                 }
-            );
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.error || `Marker upload failed (${response.status})`);
-            }
 
-            const uploadedMarkerIds = new Set(markersToUpload.map(({ id }) => id));
-            const remainingMarkers = markersRef.current.filter(
-                ({ id }) => !uploadedMarkerIds.has(id)
-            );
-            markersRef.current = remainingMarkers;
-            setMarkers(remainingMarkers);
-            setLabelStatus(`Uploaded ${markersToUpload.length} marker(s).`);
+                uploadedCount += 1;
+                const remainingMarkers = markersRef.current.filter(({ id }) => id !== marker.id);
+                markersRef.current = remainingMarkers;
+                setMarkers(remainingMarkers);
+            }
+            setLabelStatus(`Uploaded ${uploadedCount} marker(s).`);
         } catch (error) {
-            setLabelStatus(error.message);
+            setLabelStatus(
+                uploadedCount
+                    ? `Uploaded ${uploadedCount} marker(s); some markers could not be uploaded: ${error.message}`
+                    : error.message
+            );
         } finally {
             isUploadingMarkersRef.current = false;
             setIsUploadingMarkers(false);
