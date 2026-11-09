@@ -46,7 +46,7 @@ See the [application architecture diagram](.github/modernize/assessment/engines/
 
 ### Persistence model
 
-- **`users`** stores username, email, organization, password hash, and email-verification status.
+- **`users`** stores username, email, organization, optional password hash, optional unique `google_sub` (Google subject id), and email-verification status. Google-only accounts use a null password.
 - **`login_sessions`** stores a hash of the session token, session identifier, user reference, issue/expiry timestamps, and revocation status. The token lifetime is one hour.
 - **`dicom_uploads`** stores a scan UUID, owner, optional patient name, and upload timestamp.
 - **`labels`** stores a scan reference, label name/description, 3D coordinates, optional anatomy/scan identifiers, and visibility.
@@ -57,8 +57,11 @@ See the [application architecture diagram](.github/modernize/assessment/engines/
 
 1. Signup submits account details to `POST /api/signup`. The backend validates input, hashes the password, creates an unverified user, and sends a verification message.
 2. Verification links open `/verify?token=...`; the frontend posts the token to `POST /api/verify_email`. Verification tokens expire after 24 hours. `POST /api/resend_verification` supports requesting another message.
-3. `POST /api/login` checks the password and requires the account to be verified. A successful login creates a database-backed one-hour session.
-4. Protected requests submit the session token. The frontend transport refreshes sessions near expiration and supports logout; the backend validates the session record on protected operations.
+3. `POST /api/login` checks the password and requires the account to be verified. Google-only accounts (null password) cannot use password login. A successful login creates a database-backed one-hour session.
+4. `POST /api/auth/google` verifies a Google Identity Services ID token (`google-auth`), finds or creates the user by `google_sub`, and issues the same session response shape as login. Email is never used alone to merge accounts; matching an existing password account yields `ACCOUNT_CONFLICT`. Auto-verification applies only when Google is authoritative for the email (Gmail / verified Workspace `hd`); otherwise the existing email-verification workflow is used.
+5. Protected requests submit the session token. The frontend transport refreshes sessions near expiration and supports logout; the backend validates the session record on protected operations.
+
+Operator setup for Google Cloud clients and env vars: [docs/google-authentication.md](docs/google-authentication.md).
 
 Email delivery defaults to console output. SMTP delivery requires mail settings and a frontend base URL in the backend environment. Verification emails are therefore not necessarily sent to an external mail server in a local development setup.
 
@@ -82,6 +85,7 @@ All API paths below are implemented in `backend/app.py`. Except for account and 
 |---|---|---|
 | `POST` | `/api/signup` | Create an unverified account and send verification email |
 | `POST` | `/api/login` | Authenticate a verified account and create a session |
+| `POST` | `/api/auth/google` | Verify a Google ID token and create or resume a session |
 | `POST` | `/api/verify_email` | Verify an account using a signed token |
 | `POST` | `/api/resend_verification` | Resend an account verification email |
 | `POST` | `/api/logout` | Revoke the submitted session |
@@ -103,6 +107,7 @@ All API paths below are implemented in `backend/app.py`. Except for account and 
 - Protected requests are validated against database-backed session records; expired and revoked sessions are rejected.
 - Scan-specific operations verify that the authenticated user owns the scan before accessing its metadata, labels, or files.
 - Passwords are hashed using Werkzeug. Verification links use signed, time-limited tokens.
+- Google ID tokens are verified server-side (signature, audience, issuer, expiry) and are not stored. Frontend profile fields are never treated as proof of identity.
 - Uploaded filenames are sanitized and restricted to `.dcm`. Scan paths are checked against the upload directory boundary.
 - Flask-CORS permits frontend/backend cross-origin calls. The allowed origins are not narrowed in the current application configuration.
 - The backend requires `SECRET_KEY` at startup. Keep it and database credentials in environment/deployment secrets rather than source control.
@@ -131,5 +136,6 @@ For production, use a production WSGI server for Flask, serve a built frontend, 
 ## Related Documentation
 
 - [Visual architecture and component diagrams](.github/modernize/assessment/engines/facts/architecture-diagram.md)
+- [Google authentication setup](docs/google-authentication.md)
 - [Project README](README.md)
 - [Backend README](backend/README.md)

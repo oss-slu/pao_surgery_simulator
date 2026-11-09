@@ -14,12 +14,20 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, request, jsonify, send_file, send_from_directory, g
 from flask_cors import CORS
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from db import connect, initialize_db
 from models import User, Dicom, Label
 from session_tokens import create_session, validate_session, renew_session, revoke_session, SessionAuthenticationError
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from mailer import MailError, send_verification_email
+from google_auth import (
+    GoogleAuthConfigError,
+    create_google_user,
+    google_email_is_authoritative,
+    is_unique_violation,
+    verify_google_id_token,
+)
 
 load_dotenv()
 
@@ -140,8 +148,8 @@ def read_patient_name(file_paths):
 @app.route("/api/signup", methods=["POST"])
 def user_signup():
     try:
-        data = request.get_json()
-        if not data:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or not data:
             return jsonify({"error": "Missing data"}), 400
     
         user_name = data.get("user_name")
@@ -202,7 +210,7 @@ def user_signup():
 
 @app.route("/api/login", methods=["POST"])
 def user_login():
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "Missing data"}), 400
 
@@ -221,7 +229,10 @@ def user_login():
             if not user:
                 return jsonify({"error": "Invalid email"}), 401
 
-            if not check_password_hash(user.user_password, user_password):
+            # Google-only accounts have NULL password; reject password login without raising.
+            if not user.user_password or not check_password_hash(
+                user.user_password, user_password
+            ):
                 return jsonify({"error": "Invalid password"}), 401
 
             if not user.user_verified:
@@ -246,6 +257,118 @@ def user_login():
     except Exception:
         app.logger.exception("Failed to create login session")
         return jsonify({"error": "Unable to create login session"}), 500
+
+
+def _google_login_response(user, session):
+    response = jsonify({
+        "message": "Login successful",
+        "user_id": user.user_id,
+        "user_name": user.user_name,
+        "session_token": session.token,
+        "issued_at": int(session.issued_at.timestamp()),
+        "expires_at": int(session.expires_at.timestamp()),
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response, 200
+
+
+def _email_not_verified_response():
+    return jsonify({
+        "error": "Email verification required",
+        "code": "EMAIL_NOT_VERIFIED",
+    }), 403
+
+
+@app.route("/api/auth/google", methods=["POST"])
+def google_auth():
+    """Authenticate with a Google Identity Services ID token (never stored)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Missing data"}), 400
+
+    credential = data.get("credential") or data.get("id_token")
+    if not isinstance(credential, str) or not credential.strip():
+        return jsonify({"error": "Missing Google credential"}), 400
+
+    try:
+        idinfo = verify_google_id_token(credential.strip())
+    except GoogleAuthConfigError:
+        app.logger.error("Google sign-in rejected: GOOGLE_CLIENT_ID is not configured")
+        return jsonify({"error": "Google sign-in is unavailable"}), 503
+    except Exception:
+        # Token material must never be logged.
+        app.logger.warning("Google ID token verification failed")
+        return jsonify({"error": "Invalid Google credential"}), 401
+
+    google_sub = idinfo.get("sub")
+    email = idinfo.get("email")
+    if not isinstance(google_sub, str) or not google_sub:
+        return jsonify({"error": "Invalid Google credential"}), 401
+    if not isinstance(email, str) or "@" not in email:
+        return jsonify({"error": "Invalid Google credential"}), 401
+
+    authoritative = google_email_is_authoritative(idinfo)
+    pending_verification_email = None
+
+    # Retry once if a concurrent request wins the unique(google_sub|email) race.
+    for attempt in range(2):
+        try:
+            with connect() as db:
+                user = db.query(User).filter_by(google_sub=google_sub).first()
+                if user is None:
+                    email_owner = db.query(User).filter_by(user_email=email).first()
+                    if email_owner is not None:
+                        # Never auto-link by email; do not reveal account internals.
+                        return jsonify({
+                            "error": (
+                                "Unable to sign in with Google for this email. "
+                                "Sign in with your existing password instead."
+                            ),
+                            "code": "ACCOUNT_CONFLICT",
+                        }), 409
+
+                    user = create_google_user(
+                        db,
+                        google_sub=google_sub,
+                        email=email,
+                        verified=authoritative,
+                    )
+                    if not user.user_verified:
+                        pending_verification_email = (
+                            user.user_id,
+                            user.user_email,
+                        )
+
+                if not user.user_verified:
+                    # Commit any new unverified account before leaving the block.
+                    break
+
+                session = create_session(db, user.user_id)
+                return _google_login_response(user, session)
+        except IntegrityError as exc:
+            if attempt == 0 and is_unique_violation(exc):
+                continue
+            app.logger.exception("Failed to complete Google authentication")
+            return jsonify({"error": "Unable to create login session"}), 500
+        except Exception:
+            app.logger.exception("Failed to complete Google authentication")
+            return jsonify({"error": "Unable to create login session"}), 500
+
+    if pending_verification_email is not None:
+        user_id, mail_to = pending_verification_email
+        try:
+            token = make_verification_token(
+                SimpleNamespace(user_id=user_id, user_email=mail_to)
+            )
+            send_verification_email(mail_to, token)
+        except MailError:
+            app.logger.exception(
+                "Failed to send verification email after Google sign-in"
+            )
+        return _email_not_verified_response()
+
+    # Existing Google account that still needs email verification.
+    return _email_not_verified_response()
 
 
 @app.route("/api/verify_email", methods=["POST"])
@@ -337,9 +460,9 @@ def user_logout():
         return response, 200
     except SessionAuthenticationError as error:
         safe_errors = {
-            "missing_session_token": "Session token is required",
-            "invalid_session_token": "Invalid session token",
-            "expired_session_token": "Session token expired",
+            "SESSION_REQUIRED": "Session token is required",
+            "SESSION_INVALID": "Invalid session token",
+            "SESSION_EXPIRED": "Session token expired",
         }
         response = jsonify({
             "error": safe_errors.get(error.code, "Authentication failed"),
@@ -369,9 +492,9 @@ def refresh_session():
         return response, 200
     except SessionAuthenticationError as error:
         safe_errors = {
-            "missing_session_token": "Session token is required",
-            "invalid_session_token": "Invalid session token",
-            "expired_session_token": "Session token expired",
+            "SESSION_REQUIRED": "Session token is required",
+            "SESSION_INVALID": "Invalid session token",
+            "SESSION_EXPIRED": "Session token expired",
         }
         response = jsonify({
             "error": safe_errors.get(error.code, "Authentication failed"),

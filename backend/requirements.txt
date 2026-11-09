@@ -9,3 +9,5 @@ sqlalchemy==2.0.52
 pytest==9.0.3
 python-dotenv==1.2.2
 itsdangerous==2.2.0
+google-auth==2.40.3
+requests==2.33.0

@@ -30,7 +30,9 @@ def _make_user(user_id=1, user_name="testuser", password="password123", verified
     mock_user = MagicMock()
     mock_user.user_id = user_id
     mock_user.user_name = user_name
-    mock_user.user_password = generate_password_hash(password)
+    mock_user.user_password = (
+        None if password is None else generate_password_hash(password)
+    )
     mock_user.user_verified = verified
     return mock_user
 
@@ -87,6 +89,22 @@ def test_login_wrong_password(mock_connect, mock_create_session, client):
     assert response.status_code == 401
     assert response.get_json()["error"] == "Invalid password"
     assert "EMAIL_NOT_VERIFIED" not in response.get_data(as_text=True)
+    mock_create_session.assert_not_called()
+
+
+@patch("app.create_session")
+@patch("app.connect")
+def test_login_null_password_rejected(mock_connect, mock_create_session, client):
+    """Google-only accounts (NULL password) must not authenticate via password login."""
+    _mock_db_with_user(mock_connect, _make_user(password=None, verified=True))
+
+    response = client.post("/api/login", json={
+        "user_email": "google-only@example.com",
+        "user_password": "anypassword123",
+    })
+
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "Invalid password"
     mock_create_session.assert_not_called()
 
 
