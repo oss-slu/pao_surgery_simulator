@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { sessionFetch } from '../sessionApi';
 import '@kitware/vtk.js/Rendering/Profiles/Volume';
 import vtkGenericRenderWindow from '@kitware/vtk.js/Rendering/Misc/GenericRenderWindow';
@@ -115,17 +115,306 @@ function applyStraightCut(imageData, {
   };
 }
 
+function getCutPointerPosition(event, vtk) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const view = vtk.renderWindow.getViews()[0];
+  const [width, height] = view.getFramebufferSize();
+
+  if (!rect.width || !rect.height || !width || !height) {
+    return null;
+  }
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  const camera = vtk.renderer.getActiveCamera();
+  const focalPoint = camera.getFocalPoint();
+
+  const displayDepth = view.worldToDisplay(
+    ...focalPoint,
+    vtk.renderer
+  )[2];
+
+  const world = view.displayToWorld(
+    (x / rect.width) * width,
+    (1 - y / rect.height) * height,
+    displayDepth,
+    vtk.renderer
+  );
+
+  return {
+    x,
+    y,
+    world,
+    height: rect.height,
+    inside:
+      x >= 0 &&
+      x <= rect.width &&
+      y >= 0 &&
+      y <= rect.height,
+  };
+}
+
+function CutOverlay({ vtk, thickness, onCut, status, onStatusChange, onDragChange }) {
+  const dragRef = useRef(null);
+  const [preview, setPreview] = useState(null);
+
+  const cancelDrag = useCallback(() => {
+    const drag = dragRef.current;
+
+    dragRef.current = null;
+    setPreview(null);
+    onDragChange(false);
+
+    if (drag?.element.hasPointerCapture(drag.pointerId)) {
+      drag.element.releasePointerCapture(drag.pointerId);
+    }
+  }, [onDragChange]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        cancelDrag();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('blur', cancelDrag);
+    window.addEventListener('resize', cancelDrag);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('blur', cancelDrag);
+      window.removeEventListener('resize', cancelDrag);
+      cancelDrag();
+    };
+  }, [cancelDrag]);
+
+  const handlePointerDown = (event) => {
+    if (
+      event.button !== 0 ||
+      !event.isPrimary ||
+      dragRef.current
+    ) {
+      return;
+    }
+
+    const start = getCutPointerPosition(event, vtk);
+    if (!start) return;
+
+    event.preventDefault();
+
+    const camera = vtk.renderer.getActiveCamera();
+
+    dragRef.current = {
+      pointerId: event.pointerId,
+      element: event.currentTarget,
+      start,
+      thickness,
+      depthDirection: [...camera.getDirectionOfProjection()],
+    };
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    onDragChange(true);
+    onStatusChange('');
+    setPreview({
+      start,
+      end: start,
+      width:
+        thickness *
+        start.height /
+        (2 * camera.getParallelScale()),
+    });
+  };
+
+  const handlePointerMove = (event) => {
+    if (dragRef.current?.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const end = getCutPointerPosition(event, vtk);
+
+    if (end) {
+      setPreview((current) =>
+        current ? { ...current, end } : current
+      );
+    }
+  };
+
+  const handlePointerUp = (event) => {
+    const drag = dragRef.current;
+
+    if (
+      !drag ||
+      drag.pointerId !== event.pointerId ||
+      event.button !== 0
+    ) {
+      return;
+    }
+
+    const end = getCutPointerPosition(event, vtk);
+
+    cancelDrag();
+
+    // Ignore releases outside the viewer and tiny gestures.
+    if (
+      !end ||
+      !end.inside ||
+      Math.hypot(
+        end.x - drag.start.x,
+        end.y - drag.start.y
+      ) < 3
+    ) {
+      return;
+    }
+
+    try {
+      const imageData = vtk.mapper.getInputData();
+      const cut = applyStraightCut(
+        imageData,
+        {
+          start: drag.start.world,
+          end: end.world,
+          depthDirection: drag.depthDirection,
+          thickness: drag.thickness,
+        }
+      );
+
+      if (cut.indices.length > 0) {
+        onCut({ imageData, ...cut });
+      }
+      vtk.renderWindow.render();
+
+      onStatusChange(
+        cut.indices.length
+          ? `${cut.indices.length.toLocaleString()} samples changed.`
+          : 'No new samples changed.'
+      );
+    } catch (cutError) {
+      onStatusChange(cutError.message);
+    }
+  };
+
+  return (
+    <>
+      <svg
+        aria-label="Cut drawing area"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={cancelDrag}
+        onLostPointerCapture={cancelDrag}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          zIndex: 5,
+          cursor: 'crosshair',
+          touchAction: 'none',
+          userSelect: 'none',
+        }}
+      >
+        <rect
+          width="100%"
+          height="100%"
+          fill="transparent"
+        />
+
+        {preview && (
+          <g pointerEvents="none">
+            <line
+              x1={preview.start.x}
+              y1={preview.start.y}
+              x2={preview.end.x}
+              y2={preview.end.y}
+              stroke="#ff5555"
+              strokeOpacity="0.3"
+              strokeWidth={preview.width}
+              strokeLinecap="butt"
+            />
+
+            <line
+              x1={preview.start.x}
+              y1={preview.start.y}
+              x2={preview.end.x}
+              y2={preview.end.y}
+              stroke="#ff5555"
+              strokeWidth="2"
+              strokeDasharray="6 4"
+            />
+          </g>
+        )}
+      </svg>
+
+      {status && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            bottom: '1rem',
+            left: '1rem',
+            zIndex: 6,
+            color: 'white',
+            background: 'rgba(0, 0, 0, 0.8)',
+            padding: '0.5rem',
+            pointerEvents: 'none',
+          }}
+        >
+          {status}
+        </div>
+      )}
+    </>
+  );
+}
+
 function VTKViewer({ modelUrl, label }) {
   const vtkContainerRef = useRef(null);
   const context = useRef(null);
+  const cutHistoryRef = useRef([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [emphasizeDenseTissue, setEmphasizeDenseTissue] = useState(false);
   const [activeTool, setActiveTool] = useState('navigate');
   const [cutThickness, setCutThickness] = useState(3);
   const [isVolumeReady, setIsVolumeReady] = useState(false);
+  const [undoCount, setUndoCount] = useState(0);
+  const [cutStatus, setCutStatus] = useState('');
+  const [isCutDragging, setIsCutDragging] = useState(false);
 
   const toolsDisabled = !modelUrl || !isVolumeReady || isLoading || Boolean(error);
+
+  const recordCut = useCallback((cut) => {
+    if (cut.imageData !== context.current?.mapper.getInputData()) return;
+
+    cutHistoryRef.current.push(cut);
+    setUndoCount(cutHistoryRef.current.length);
+  }, []);
+
+  const handleUndo = () => {
+    if (toolsDisabled || activeTool !== 'cut' || isCutDragging || !context.current) {
+      return;
+    }
+
+    const { mapper, renderWindow } = context.current;
+    const imageData = mapper.getInputData();
+    const cut = cutHistoryRef.current[cutHistoryRef.current.length - 1];
+    if (!cut || cut.imageData !== imageData) return;
+
+    const scalars = imageData.getPointData().getScalars();
+    const values = scalars.getData();
+    for (let i = 0; i < cut.indices.length; i++) {
+      values[cut.indices[i]] = cut.previousValues[i];
+    }
+
+    scalars.dataChange();
+    imageData.modified();
+    cutHistoryRef.current.pop();
+    setUndoCount(cutHistoryRef.current.length);
+    setCutStatus('Last cut undone.');
+    renderWindow.render();
+  };
 
   useEffect(() => {
     const genericRenderWindow = vtkGenericRenderWindow.newInstance({
@@ -134,6 +423,7 @@ function VTKViewer({ modelUrl, label }) {
     genericRenderWindow.setContainer(vtkContainerRef.current);
 
     const renderer = genericRenderWindow.getRenderer();
+    renderer.getActiveCamera().setParallelProjection(true);
     const renderWindow = genericRenderWindow.getRenderWindow();
     const mapper = vtkVolumeMapper.newInstance();
     const actor = vtkVolume.newInstance();
@@ -196,6 +486,10 @@ function VTKViewer({ modelUrl, label }) {
     setError('');
     setIsVolumeReady(false);
     setActiveTool('navigate');
+    cutHistoryRef.current = [];
+    setUndoCount(0);
+    setCutStatus('');
+    setIsCutDragging(false);
 
     const loadVolume = async () => {
       try {
@@ -232,31 +526,6 @@ function VTKViewer({ modelUrl, label }) {
     return () => controller.abort();
   }, [modelUrl]);
 
-  const handleTestCut = () => {
-    if (toolsDisabled || activeTool !== 'cut' || !context.current) {
-      return;
-    }
-
-    const { mapper, renderWindow } = context.current;
-    const imageData = mapper.getInputData();
-
-    if (!imageData) return;
-
-    const [xMin, xMax] = imageData.getBounds();
-    const [, centerY, centerZ] = imageData.getCenter();
-
-    const cut = applyStraightCut(imageData, {
-      start: [xMin, centerY, centerZ],
-      end: [xMax, centerY, centerZ],
-      depthDirection: [0, 0, 1],
-      thickness: cutThickness,
-    });
-
-    renderWindow.render();
-
-    console.log('Changed volume samples:', cut.indices.length);
-  };
-
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 0, position: 'relative' }}>
       <div
@@ -267,6 +536,20 @@ function VTKViewer({ modelUrl, label }) {
           cursor: activeTool === 'cut' ? 'crosshair' : 'grab',
         }}
       />
+
+      {activeTool === 'cut' &&
+        !toolsDisabled &&
+        context.current && (
+          <CutOverlay
+            key={modelUrl}
+            vtk={context.current}
+            thickness={cutThickness}
+            onCut={recordCut}
+            status={cutStatus}
+            onStatusChange={setCutStatus}
+            onDragChange={setIsCutDragging}
+          />
+        )}
 
       <fieldset
         style={{
@@ -329,37 +612,41 @@ function VTKViewer({ modelUrl, label }) {
           </button>
         </div>
 
-        <label
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.4rem',
-            marginTop: '0.85rem',
-          }}
-        >
-          <span>Thickness: {cutThickness} mm</span>
+        {activeTool === 'cut' && (
+          <>
+            <label
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.4rem',
+                marginTop: '0.85rem',
+              }}
+            >
+              <span>Thickness: {cutThickness} mm</span>
 
-          <input
-            type="range"
-            min="1"
-            max="30"
-            step="0.5"
-            value={cutThickness}
-            disabled={toolsDisabled || activeTool !== 'cut'}
-            onChange={(event) =>
-              setCutThickness(Number(event.target.value))
-            }
-          />
-        </label>
+              <input
+                type="range"
+                min="1"
+                max="30"
+                step="0.5"
+                value={cutThickness}
+                disabled={toolsDisabled || isCutDragging}
+                onChange={(event) =>
+                  setCutThickness(Number(event.target.value))
+                }
+              />
+            </label>
 
-        <button
-          type="button"
-          disabled={toolsDisabled || activeTool !== 'cut'}
-          onClick={handleTestCut}
-          style={{ marginTop: '0.75rem' }}
-        >
-          Apply test cut
-        </button>
+            <button
+              type="button"
+              disabled={toolsDisabled || undoCount === 0 || isCutDragging}
+              onClick={handleUndo}
+              style={{ marginTop: '0.75rem' }}
+            >
+              Undo
+            </button>
+          </>
+        )}
       </fieldset>
 
       {label && label.visible !== false && (
