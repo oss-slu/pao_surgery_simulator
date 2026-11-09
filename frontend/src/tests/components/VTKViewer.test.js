@@ -16,12 +16,17 @@ function createImage() {
   const scalars = {
     getData: () => values,
     getNumberOfComponents: () => 1,
+    getComponent: (index) => values[index],
     dataChange: jest.fn(),
   };
   const image = {
     getPointData: () => ({ getScalars: () => scalars }),
     getNumberOfPoints: () => values.length,
     getExtent: () => [0, 20, 0, 20, 0, 4],
+    getBounds: () => [-10, 10, -10, 10, -2, 2],
+    getDimensions: () => [21, 21, 5],
+    getSpacing: () => [1, 1, 1],
+    worldToIndex: ([x, y, z]) => [x + 10, y + 10, z + 2],
     indexToWorld: ([i, j, k], out) => {
       out[0] = i - 10;
       out[1] = j - 10;
@@ -36,6 +41,7 @@ function createImage() {
 let scene;
 
 beforeEach(() => {
+  jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
   const image = createImage();
   let input;
   let cameraEnabled = true;
@@ -46,18 +52,27 @@ beforeEach(() => {
   };
   const camera = {
     setParallelProjection: jest.fn(),
+    getPosition: () => [0, 0, 10],
     getFocalPoint: () => [0, 0, 0],
+    getClippingRange: () => [0.1, 100],
+    getParallelProjection: () => true,
     getDirectionOfProjection: () => [0, 0, -1],
     getParallelScale: () => 30,
+    onModified: () => ({ unsubscribe: jest.fn() }),
   };
   const renderer = {
     getActiveCamera: () => camera,
     addVolume: jest.fn(),
     resetCamera: jest.fn(),
+    worldToNormalizedDisplay: () => [0, 0, 0.5],
+    normalizedDisplayToWorld: () => [0, 0, 0],
   };
   // A 2x pixel-density, orthographic view with 60 world units of height.
   const view = {
+    getViewportSize: () => [800, 600],
     getFramebufferSize: () => [1600, 1200],
+    normalizedDisplayToDisplay: (x, y, z) => [x, y, z],
+    displayToNormalizedDisplay: (x, y, z) => [x / 800, y / 600, z],
     worldToDisplay: (x, y) => [800 + x * 20, 600 + y * 20, 0.5],
     displayToWorld: (x, y) => [(x - 800) / 20, (y - 600) / 20, 0],
   };
@@ -75,6 +90,7 @@ beforeEach(() => {
     getRenderer: () => renderer,
     getRenderWindow: () => renderWindow,
     resize: jest.fn(),
+    onResize: () => ({ unsubscribe: jest.fn() }),
     delete: jest.fn(),
   };
   const reader = {
@@ -94,7 +110,10 @@ beforeEach(() => {
   });
   jest.spyOn(vtkXMLImageDataReader, 'newInstance').mockReturnValue(reader);
   jest.spyOn(vtkColorTransferFunction, 'newInstance').mockReturnValue({ addRGBPoint: jest.fn() });
-  jest.spyOn(vtkPiecewiseFunction, 'newInstance').mockReturnValue({ addPoint: jest.fn() });
+  jest.spyOn(vtkPiecewiseFunction, 'newInstance').mockReturnValue({
+    addPoint: jest.fn(),
+    getValue: () => 0.3,
+  });
   sessionFetch.mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) });
 
   scene = { ...image, renderWindow, reader, style };
@@ -106,8 +125,8 @@ afterEach(() => {
   sessionFetch.mockReset();
 });
 
-async function renderReady() {
-  const view = render(<VTKViewer modelUrl="/scan-a" />);
+async function renderReady(props = {}) {
+  const view = render(<VTKViewer modelUrl="/scan-a" {...props} />);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Cut' })).toBeEnabled());
   return view;
 }
@@ -143,6 +162,52 @@ function drag(svg, start = [300, 300], end = [500, 300]) {
   pointer(svg, 'pointermove', ...end);
   pointer(svg, 'pointerup', ...end);
 }
+
+test('marker tool adds volume coordinates and supports choosing a color', async () => {
+  const onMarkerAdded = jest.fn();
+  const canvasContext = {
+    setTransform: jest.fn(),
+    clearRect: jest.fn(),
+    beginPath: jest.fn(),
+    moveTo: jest.fn(),
+    lineTo: jest.fn(),
+    stroke: jest.fn(),
+  };
+  HTMLCanvasElement.prototype.getContext.mockReturnValue(canvasContext);
+  const view = await renderReady({ onMarkerAdded });
+  const vtkContainer = view.container.querySelector('canvas').parentElement.firstElementChild;
+  vtkContainer.getBoundingClientRect = () => ({
+    left: 100,
+    top: 50,
+    right: 900,
+    bottom: 650,
+    width: 800,
+    height: 600,
+  });
+  view.container.querySelector('canvas').getBoundingClientRect = () => ({
+    left: 100,
+    top: 50,
+    right: 900,
+    bottom: 650,
+    width: 800,
+    height: 600,
+  });
+
+  fireEvent.click(screen.getByRole('button', { name: 'Marker' }));
+  fireEvent.change(screen.getByLabelText('Marker color'), { target: { value: '#00ff00' } });
+  pointer(vtkContainer, 'pointerdown', 400, 300);
+  pointer(vtkContainer, 'pointerup', 400, 300);
+
+  expect(onMarkerAdded).toHaveBeenCalledWith(expect.objectContaining({
+    coordinates: expect.objectContaining({
+      x: expect.any(Number),
+      y: expect.any(Number),
+      z: expect.any(Number),
+    }),
+    color: '#00ff00',
+  }));
+  expect(canvasContext.stroke).toHaveBeenCalled();
+});
 
 function setThickness(value) {
   fireEvent.change(screen.getByRole('slider', { name: /Thickness/ }), {

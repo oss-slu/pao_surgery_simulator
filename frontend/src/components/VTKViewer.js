@@ -9,6 +9,107 @@ import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransf
 import vtkPiecewiseFunction from '@kitware/vtk.js/Common/DataModel/PiecewiseFunction';
 import { vec3 } from 'gl-matrix';
 
+function findVolumePosition(event, container, renderWindow, renderer, imageData, ofun) {
+  if (!imageData) return null;
+
+  const rect = container.getBoundingClientRect();
+  const view = renderWindow.getViews()[0];
+  const viewportSize = view.getViewportSize(renderer);
+  if (!rect.width || !rect.height || !viewportSize[0] || !viewportSize[1]) return null;
+
+  const aspect = viewportSize[0] / viewportSize[1];
+  const camera = renderer.getActiveCamera();
+  const cameraPosition = camera.getPosition();
+  const focalPoint = camera.getFocalPoint();
+  const focalDisplay = renderer.worldToNormalizedDisplay(
+    focalPoint[0], focalPoint[1], focalPoint[2], aspect
+  );
+  const selectionZ = view.normalizedDisplayToDisplay(...focalDisplay)[2];
+  const selection = view.displayToNormalizedDisplay(
+    (event.clientX - rect.left) * viewportSize[0] / rect.width,
+    (rect.bottom - event.clientY) * viewportSize[1] / rect.height,
+    selectionZ
+  );
+  const pickPosition = renderer.normalizedDisplayToWorld(
+    selection[0], selection[1], selection[2], aspect
+  );
+  const direction = [
+    focalPoint[0] - cameraPosition[0],
+    focalPoint[1] - cameraPosition[1],
+    focalPoint[2] - cameraPosition[2],
+  ];
+  const directionLength = Math.hypot(...direction);
+  if (!directionLength) return null;
+  for (let axis = 0; axis < 3; axis += 1) direction[axis] /= directionLength;
+
+  const ray = pickPosition.map((value, axis) => value - cameraPosition[axis]);
+  const rayLength = ray.reduce((sum, value, axis) => sum + value * direction[axis], 0);
+  if (!rayLength) return null;
+
+  const clippingRange = camera.getClippingRange();
+  const nearDistance = camera.getParallelProjection()
+    ? clippingRange[0] - rayLength
+    : clippingRange[0] / rayLength;
+  const farDistance = camera.getParallelProjection()
+    ? clippingRange[1] - rayLength
+    : clippingRange[1] / rayLength;
+  const start = camera.getParallelProjection()
+    ? pickPosition.map((value, axis) => value + nearDistance * direction[axis])
+    : cameraPosition.map((value, axis) => value + nearDistance * ray[axis]);
+  const end = camera.getParallelProjection()
+    ? pickPosition.map((value, axis) => value + farDistance * direction[axis])
+    : cameraPosition.map((value, axis) => value + farDistance * ray[axis]);
+
+  const bounds = imageData.getBounds();
+  const rayVector = end.map((value, axis) => value - start[axis]);
+  let first = 0;
+  let last = 1;
+  for (let axis = 0; axis < 3; axis += 1) {
+    if (rayVector[axis] === 0) {
+      if (start[axis] < bounds[axis * 2] || start[axis] > bounds[axis * 2 + 1]) return null;
+      continue;
+    }
+    let entry = (bounds[axis * 2] - start[axis]) / rayVector[axis];
+    let exit = (bounds[axis * 2 + 1] - start[axis]) / rayVector[axis];
+    if (entry > exit) [entry, exit] = [exit, entry];
+    first = Math.max(first, entry);
+    last = Math.min(last, exit);
+    if (first > last) return null;
+  }
+
+  const spacing = imageData.getSpacing().map(Math.abs).filter((value) => value > 0);
+  const sampleStep = Math.max(Math.min(...spacing) * 0.5, 0.01);
+  const sampleCount = Math.max(1, Math.ceil(
+    Math.hypot(...rayVector) * (last - first) / sampleStep
+  ));
+  const dimensions = imageData.getDimensions();
+  const scalars = imageData.getPointData().getScalars();
+
+  for (let sample = 0; sample <= sampleCount; sample += 1) {
+    const ratio = first + (last - first) * sample / sampleCount;
+    const worldPosition = start.map((value, axis) => value + ratio * rayVector[axis]);
+    const index = imageData.worldToIndex(worldPosition);
+    const x = Math.round(index[0]);
+    const y = Math.round(index[1]);
+    const z = Math.round(index[2]);
+    if (
+      x < 0 || x >= dimensions[0] ||
+      y < 0 || y >= dimensions[1] ||
+      z < 0 || z >= dimensions[2]
+    ) continue;
+
+    const scalar = scalars.getComponent(x + dimensions[0] * (y + dimensions[1] * z), 0);
+    if (ofun.getValue(scalar) >= 0.05) {
+      const rayLength = Math.hypot(...rayVector);
+      return {
+        position: worldPosition,
+        viewDirection: rayVector.map((value) => value / rayLength),
+      };
+    }
+  }
+  return null;
+}
+
 function applyStraightCut(imageData, {
   start,
   end,
@@ -369,19 +470,28 @@ function CutOverlay({ vtk, thickness, onCut, status, onStatusChange, onDragChang
   );
 }
 
-function VTKViewer({ modelUrl, label }) {
+function VTKViewer({ modelUrl, label, onMarkerAdded }) {
   const vtkContainerRef = useRef(null);
+  const drawingCanvasRef = useRef(null);
   const context = useRef(null);
+  const onMarkerAddedRef = useRef(onMarkerAdded);
+  const drawingRef = useRef(false);
+  const previousPositionRef = useRef(null);
+  const activeStrokeRef = useRef(null);
+  const strokesRef = useRef([]);
   const cutHistoryRef = useRef([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [emphasizeDenseTissue, setEmphasizeDenseTissue] = useState(false);
   const [activeTool, setActiveTool] = useState('navigate');
+  const [markerColor, setMarkerColor] = useState('#ff0000');
   const [cutThickness, setCutThickness] = useState(3);
   const [isVolumeReady, setIsVolumeReady] = useState(false);
   const [undoCount, setUndoCount] = useState(0);
   const [cutStatus, setCutStatus] = useState('');
   const [isCutDragging, setIsCutDragging] = useState(false);
+
+  onMarkerAddedRef.current = onMarkerAdded;
 
   const toolsDisabled = !modelUrl || !isVolumeReady || isLoading || Boolean(error);
 
@@ -470,6 +580,161 @@ function VTKViewer({ modelUrl, label }) {
   }, [activeTool]);
 
   useEffect(() => {
+    const container = vtkContainerRef.current;
+    const canvas = drawingCanvasRef.current;
+    const current = context.current;
+    if (!container || !canvas || !current) return undefined;
+
+    const drawStrokes = () => {
+      const rect = canvas.getBoundingClientRect();
+      const pixelRatio = window.devicePixelRatio || 1;
+      const width = Math.round(rect.width * pixelRatio);
+      const height = Math.round(rect.height * pixelRatio);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      const context2d = canvas.getContext('2d');
+      if (!context2d) return;
+      context2d.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context2d.clearRect(0, 0, rect.width, rect.height);
+      if (!current.imageData || !rect.width || !rect.height) return;
+
+      const view = current.renderWindow.getViews()[0];
+      const framebufferSize = view.getFramebufferSize();
+      const scaleX = framebufferSize[0] / rect.width;
+      const scaleY = framebufferSize[1] / rect.height;
+
+      strokesRef.current.forEach((stroke) => {
+        if (!stroke.points.length) return;
+        const projectedPoints = stroke.points.map((point) => {
+          const displayPoint = view.worldToDisplay(
+            point[0], point[1], point[2], current.renderer
+          );
+          return [
+            displayPoint[0] / scaleX,
+            rect.height - displayPoint[1] / scaleY,
+          ];
+        });
+
+        context2d.lineCap = 'round';
+        context2d.lineJoin = 'round';
+        context2d.lineWidth = 5;
+        context2d.strokeStyle = '#111111';
+        context2d.beginPath();
+        projectedPoints.forEach(([x, y], index) => {
+          if (index === 0) context2d.moveTo(x, y);
+          else context2d.lineTo(x, y);
+        });
+        if (projectedPoints.length === 1) {
+          context2d.lineTo(projectedPoints[0][0] + 0.1, projectedPoints[0][1] + 0.1);
+        }
+        context2d.stroke();
+
+        context2d.lineWidth = 3;
+        context2d.strokeStyle = stroke.color;
+        context2d.beginPath();
+        projectedPoints.forEach(([x, y], index) => {
+          if (index === 0) context2d.moveTo(x, y);
+          else context2d.lineTo(x, y);
+        });
+        if (projectedPoints.length === 1) {
+          context2d.lineTo(projectedPoints[0][0] + 0.1, projectedPoints[0][1] + 0.1);
+        }
+        context2d.stroke();
+      });
+    };
+
+    const cameraSubscription = current.renderer.getActiveCamera().onModified(drawStrokes);
+    const resizeSubscription = current.genericRenderWindow.onResize(drawStrokes);
+
+    const stopVtkMouseEvent = (event) => {
+      if (activeTool !== 'marker') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    const addMarkerAt = (event) => {
+      const vtk = context.current;
+      if (!vtk?.imageData || !vtk.renderer) return;
+      const hit = findVolumePosition(
+        event, container, vtk.renderWindow, vtk.renderer, vtk.imageData, vtk.ofun
+      );
+      if (!hit) return;
+      const { position } = hit;
+
+      const spacing = vtk.imageData.getSpacing().map(Math.abs).filter((value) => value > 0);
+      const lastPosition = previousPositionRef.current;
+      const minimumDistance = Math.min(...spacing) * 0.25;
+      if (
+        lastPosition &&
+        Math.hypot(...position.map((value, axis) => value - lastPosition[axis])) < minimumDistance
+      ) return;
+
+      previousPositionRef.current = position;
+      if (!activeStrokeRef.current) {
+        activeStrokeRef.current = { color: markerColor, points: [] };
+        strokesRef.current.push(activeStrokeRef.current);
+      }
+      activeStrokeRef.current.points.push(position);
+      drawStrokes();
+
+      onMarkerAddedRef.current?.({
+        id: `${Date.now()}-${Math.random()}`,
+        coordinates: { x: position[0], y: position[1], z: position[2] },
+        color: markerColor,
+      });
+    };
+
+    const handlePointerDown = (event) => {
+      if (activeTool !== 'marker' || event.button !== 0) return;
+      stopVtkMouseEvent(event);
+      drawingRef.current = true;
+      previousPositionRef.current = null;
+      activeStrokeRef.current = null;
+      addMarkerAt(event);
+      container.setPointerCapture?.(event.pointerId);
+    };
+    const handlePointerMove = (event) => {
+      if (activeTool === 'marker' && drawingRef.current) {
+        stopVtkMouseEvent(event);
+        addMarkerAt(event);
+      }
+    };
+    const handlePointerUp = (event) => {
+      if (activeTool !== 'marker' || !drawingRef.current) return;
+      stopVtkMouseEvent(event);
+      drawingRef.current = false;
+      previousPositionRef.current = null;
+      activeStrokeRef.current = null;
+    };
+
+    container.addEventListener('pointerdown', handlePointerDown, true);
+    container.addEventListener('pointermove', handlePointerMove, true);
+    container.addEventListener('pointerup', handlePointerUp, true);
+    container.addEventListener('pointercancel', handlePointerUp, true);
+    container.addEventListener('mousedown', stopVtkMouseEvent, true);
+    container.addEventListener('mousemove', stopVtkMouseEvent, true);
+    container.addEventListener('mouseup', stopVtkMouseEvent, true);
+    return () => {
+      container.removeEventListener('pointerdown', handlePointerDown, true);
+      container.removeEventListener('pointermove', handlePointerMove, true);
+      container.removeEventListener('pointerup', handlePointerUp, true);
+      container.removeEventListener('pointercancel', handlePointerUp, true);
+      container.removeEventListener('mousedown', stopVtkMouseEvent, true);
+      container.removeEventListener('mousemove', stopVtkMouseEvent, true);
+      container.removeEventListener('mouseup', stopVtkMouseEvent, true);
+      cameraSubscription.unsubscribe();
+      resizeSubscription.unsubscribe();
+      drawingRef.current = false;
+      previousPositionRef.current = null;
+      activeStrokeRef.current = null;
+    };
+  }, [activeTool, markerColor]);
+
+  useEffect(() => {
     if (!context.current) return;
 
     const { ofun, renderWindow } = context.current;
@@ -482,6 +747,8 @@ function VTKViewer({ modelUrl, label }) {
 
     const controller = new AbortController();
     const { genericRenderWindow, mapper, renderer, renderWindow, actor } = context.current;
+    context.current.imageData = null;
+    strokesRef.current = [];
     setIsLoading(true);
     setError('');
     setIsVolumeReady(false);
@@ -506,11 +773,14 @@ function VTKViewer({ modelUrl, label }) {
 
         if (controller.signal.aborted || !context.current) return;
         mapper.setInputData(imageData);
-
+        context.current.imageData = imageData;
         renderer.addVolume(actor);
         genericRenderWindow.resize();
         renderer.resetCamera();
         renderWindow.render();
+        drawingCanvasRef.current?.getContext('2d')?.clearRect(
+          0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height
+        );
         setIsVolumeReady(true);
       } catch (loadError) {
         if (loadError.name !== 'AbortError') {
@@ -533,7 +803,19 @@ function VTKViewer({ modelUrl, label }) {
         style={{
           width: '100%',
           height: '100%',
-          cursor: activeTool === 'cut' ? 'crosshair' : 'grab',
+          cursor: activeTool === 'navigate' ? 'grab' : 'crosshair',
+        }}
+      />
+
+      <canvas
+        ref={drawingCanvasRef}
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
         }}
       />
 
@@ -599,6 +881,20 @@ function VTKViewer({ modelUrl, label }) {
 
           <button
             type="button"
+            aria-pressed={activeTool === 'marker'}
+            disabled={toolsDisabled}
+            onClick={() => setActiveTool('marker')}
+            style={{
+              background: activeTool === 'marker' ? '#4a90d9' : '#16213e',
+              color: '#ffffff',
+              padding: '0.4rem 0.7rem',
+            }}
+          >
+            Marker
+          </button>
+
+          <button
+            type="button"
             aria-pressed={activeTool === 'cut'}
             disabled={toolsDisabled}
             onClick={() => setActiveTool('cut')}
@@ -611,6 +907,18 @@ function VTKViewer({ modelUrl, label }) {
             Cut
           </button>
         </div>
+
+        {activeTool === 'marker' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', marginTop: '0.85rem' }}>
+            Marker color
+            <input
+              aria-label="Marker color"
+              type="color"
+              value={markerColor}
+              onChange={(event) => setMarkerColor(event.target.value)}
+            />
+          </label>
+        )}
 
         {activeTool === 'cut' && (
           <>
