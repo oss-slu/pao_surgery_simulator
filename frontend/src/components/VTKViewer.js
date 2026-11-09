@@ -553,7 +553,15 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
     actor.getProperty().setRGBTransferFunction(0, ctfun);
     actor.getProperty().setScalarOpacity(0, ofun);
     actor.getProperty().setInterpolationTypeToLinear();
-    context.current = { genericRenderWindow, renderWindow, mapper, renderer, actor, ofun };
+    context.current = {
+      genericRenderWindow,
+      renderWindow,
+      mapper,
+      renderer,
+      actor,
+      ofun,
+      volumeAttached: false,
+    };
 
     return () => {
       genericRenderWindow.delete();
@@ -747,6 +755,11 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
 
     const controller = new AbortController();
     const { genericRenderWindow, mapper, renderer, renderWindow, actor } = context.current;
+    if (context.current.volumeAttached) {
+      renderer.removeVolume(actor);
+      context.current.volumeAttached = false;
+      renderWindow.render();
+    }
     context.current.imageData = null;
     strokesRef.current = [];
     setIsLoading(true);
@@ -775,6 +788,7 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
         mapper.setInputData(imageData);
         context.current.imageData = imageData;
         renderer.addVolume(actor);
+        context.current.volumeAttached = true;
         genericRenderWindow.resize();
         renderer.resetCamera();
         renderWindow.render();

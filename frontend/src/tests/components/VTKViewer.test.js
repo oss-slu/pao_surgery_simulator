@@ -63,6 +63,7 @@ beforeEach(() => {
   const renderer = {
     getActiveCamera: () => camera,
     addVolume: jest.fn(),
+    removeVolume: jest.fn(),
     resetCamera: jest.fn(),
     worldToNormalizedDisplay: () => [0, 0, 0.5],
     normalizedDisplayToWorld: () => [0, 0, 0],
@@ -100,14 +101,15 @@ beforeEach(() => {
 
   jest.spyOn(vtkGenericRenderWindow, 'newInstance').mockReturnValue(genericRenderWindow);
   jest.spyOn(vtkVolumeMapper, 'newInstance').mockReturnValue(mapper);
-  jest.spyOn(vtkVolume, 'newInstance').mockReturnValue({
+  const actor = {
     setMapper: jest.fn(),
     getProperty: () => ({
       setRGBTransferFunction: jest.fn(),
       setScalarOpacity: jest.fn(),
       setInterpolationTypeToLinear: jest.fn(),
     }),
-  });
+  };
+  jest.spyOn(vtkVolume, 'newInstance').mockReturnValue(actor);
   jest.spyOn(vtkXMLImageDataReader, 'newInstance').mockReturnValue(reader);
   jest.spyOn(vtkColorTransferFunction, 'newInstance').mockReturnValue({ addRGBPoint: jest.fn() });
   jest.spyOn(vtkPiecewiseFunction, 'newInstance').mockReturnValue({
@@ -116,7 +118,7 @@ beforeEach(() => {
   });
   sessionFetch.mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) });
 
-  scene = { ...image, renderWindow, reader, style };
+  scene = { ...image, renderWindow, reader, renderer, actor, style };
 });
 
 afterEach(() => {
@@ -301,9 +303,14 @@ test('a different scan clears history without modifying either scan', async () =
   const nextScan = createImage();
   const nextOriginal = nextScan.values.slice();
   scene.reader.getOutputData.mockReturnValue(nextScan.image);
+  const addCountBeforeSwitch = scene.renderer.addVolume.mock.calls.length;
 
   rerender(<VTKViewer modelUrl="/scan-b" />);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Cut' })).toBeEnabled());
+  expect(scene.renderer.removeVolume).toHaveBeenCalledWith(scene.actor);
+  expect(scene.renderer.addVolume).toHaveBeenCalledTimes(addCountBeforeSwitch + 1);
+  expect(scene.renderer.removeVolume.mock.invocationCallOrder[0])
+    .toBeLessThan(scene.renderer.addVolume.mock.invocationCallOrder[1]);
   selectCut();
   expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
   expect(nextScan.values).toEqual(nextOriginal);
