@@ -850,12 +850,17 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
         <legend style={{ padding: '0 0.25rem', fontSize: '0.85rem' }}>Control panel</legend>
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
           Tool
-          <select aria-label="Tool" value={tool} onChange={(event) => setTool(event.target.value)}>
+          <select
+            aria-label="Tool"
+            value={activeTool}
+            onChange={(event) => setActiveTool(event.target.value)}
+          >
             <option value="navigate">Navigate</option>
             <option value="marker">Marker</option>
+            <option value="cut">Cut</option>
           </select>
         </label>
-        {tool === 'marker' && (
+        {activeTool === 'marker' && (
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
             Marker color
             <input
@@ -925,18 +930,6 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
             Cut
           </button>
         </div>
-
-        {activeTool === 'marker' && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', marginTop: '0.85rem' }}>
-            Marker color
-            <input
-              aria-label="Marker color"
-              type="color"
-              value={markerColor}
-              onChange={(event) => setMarkerColor(event.target.value)}
-            />
-          </label>
-        )}
 
         {activeTool === 'cut' && (
           <>
