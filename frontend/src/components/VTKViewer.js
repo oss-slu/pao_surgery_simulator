@@ -848,6 +848,24 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
         }}
       >
         <legend style={{ padding: '0 0.25rem', fontSize: '0.85rem' }}>Control panel</legend>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+          Tool
+          <select aria-label="Tool" value={tool} onChange={(event) => setTool(event.target.value)}>
+            <option value="navigate">Navigate</option>
+            <option value="marker">Marker</option>
+          </select>
+        </label>
+        {tool === 'marker' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+            Marker color
+            <input
+              aria-label="Marker color"
+              type="color"
+              value={markerColor}
+              onChange={(event) => setMarkerColor(event.target.value)}
+            />
+          </label>
+        )}
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
           <input
             type="checkbox"
@@ -956,33 +974,6 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
           </>
         )}
       </fieldset>
-
-      {label && label.visible !== false && (
-        <div
-          role="status"
-          style={{
-            position: 'absolute',
-            top: '1rem',
-            left: '1rem',
-            zIndex: 10,
-            maxWidth: 'min(24rem, calc(100% - 2rem))',
-            padding: '0.75rem 1rem',
-            background: 'rgba(15, 52, 96, 0.94)',
-            border: '1px solid #90cdf4',
-            borderRadius: '6px',
-            color: '#ffffff',
-            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
-          }}
-        >
-          <strong style={{ display: 'block' }}>{label.name}</strong>
-          <span style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.9rem' }}>
-            {label.description}
-          </span>
-          <code style={{ display: 'block', marginTop: '0.35rem', color: '#bee3f8' }}>
-            3D: ({label.coordinates.x}, {label.coordinates.y}, {label.coordinates.z})
-          </code>
-        </div>
-      )}
 
       {isLoading && (
         <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>

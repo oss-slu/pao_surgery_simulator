@@ -34,4 +34,4 @@ PAO Simulation Surgery is a web based application designed to establish an inter
 - [Visual architecture and component diagrams](.github/modernize/assessment/engines/facts/architecture-diagram.md)
 
 ### Contribution
-We Welcome contributions from the community
+We welcome contributions from the community
