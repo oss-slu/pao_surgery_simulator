@@ -1,5 +1,14 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { sessionFetch } from '../sessionApi';
+import {
+  canRedo as historyCanRedo,
+  canUndo as historyCanUndo,
+  clearEdits,
+  createEditHistory,
+  pushEdit,
+  redoEdit,
+  undoEdit,
+} from '../editHistory';
 import '@kitware/vtk.js/Rendering/Profiles/Volume';
 import vtkGenericRenderWindow from '@kitware/vtk.js/Rendering/Misc/GenericRenderWindow';
 import vtkVolume from '@kitware/vtk.js/Rendering/Core/Volume';
@@ -213,6 +222,7 @@ function applyStraightCut(imageData, {
   return {
     indices: Uint32Array.from(indices),
     previousValues: values.constructor.from(previousValues),
+    emptyValue,
   };
 }
 
@@ -479,7 +489,7 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
   const previousPositionRef = useRef(null);
   const activeStrokeRef = useRef(null);
   const strokesRef = useRef([]);
-  const cutHistoryRef = useRef([]);
+  const editHistoryRef = useRef(createEditHistory());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [emphasizeDenseTissue, setEmphasizeDenseTissue] = useState(false);
@@ -487,7 +497,8 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
   const [markerColor, setMarkerColor] = useState('#ff0000');
   const [cutThickness, setCutThickness] = useState(3);
   const [isVolumeReady, setIsVolumeReady] = useState(false);
-  const [undoCount, setUndoCount] = useState(0);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const [cutStatus, setCutStatus] = useState('');
   const [isCutDragging, setIsCutDragging] = useState(false);
 
@@ -495,22 +506,33 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
 
   const toolsDisabled = !modelUrl || !isVolumeReady || isLoading || Boolean(error);
 
+  const syncHistoryButtons = useCallback(() => {
+    const history = editHistoryRef.current;
+    setCanUndo(historyCanUndo(history));
+    setCanRedo(historyCanRedo(history));
+  }, []);
+
   const recordCut = useCallback((cut) => {
     if (cut.imageData !== context.current?.mapper.getInputData()) return;
 
-    cutHistoryRef.current.push(cut);
-    setUndoCount(cutHistoryRef.current.length);
-  }, []);
+    pushEdit(editHistoryRef.current, cut);
+    syncHistoryButtons();
+  }, [syncHistoryButtons]);
 
-  const handleUndo = () => {
+  const handleUndo = useCallback(() => {
     if (toolsDisabled || activeTool !== 'cut' || isCutDragging || !context.current) {
       return;
     }
 
+    const history = editHistoryRef.current;
+    if (!historyCanUndo(history)) return;
+
     const { mapper, renderWindow } = context.current;
     const imageData = mapper.getInputData();
-    const cut = cutHistoryRef.current[cutHistoryRef.current.length - 1];
+    const cut = history.entries[history.cursor - 1];
     if (!cut || cut.imageData !== imageData) return;
+
+    undoEdit(history);
 
     const scalars = imageData.getPointData().getScalars();
     const values = scalars.getData();
@@ -520,11 +542,38 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
 
     scalars.dataChange();
     imageData.modified();
-    cutHistoryRef.current.pop();
-    setUndoCount(cutHistoryRef.current.length);
+    syncHistoryButtons();
     setCutStatus('Last cut undone.');
     renderWindow.render();
-  };
+  }, [toolsDisabled, activeTool, isCutDragging, syncHistoryButtons]);
+
+  const handleRedo = useCallback(() => {
+    if (toolsDisabled || activeTool !== 'cut' || isCutDragging || !context.current) {
+      return;
+    }
+
+    const history = editHistoryRef.current;
+    if (!historyCanRedo(history)) return;
+
+    const { mapper, renderWindow } = context.current;
+    const imageData = mapper.getInputData();
+    const cut = history.entries[history.cursor];
+    if (!cut || cut.imageData !== imageData) return;
+
+    redoEdit(history);
+
+    const scalars = imageData.getPointData().getScalars();
+    const values = scalars.getData();
+    for (let i = 0; i < cut.indices.length; i++) {
+      values[cut.indices[i]] = cut.emptyValue;
+    }
+
+    scalars.dataChange();
+    imageData.modified();
+    syncHistoryButtons();
+    setCutStatus('Last cut redone.');
+    renderWindow.render();
+  }, [toolsDisabled, activeTool, isCutDragging, syncHistoryButtons]);
 
   useEffect(() => {
     const genericRenderWindow = vtkGenericRenderWindow.newInstance({
@@ -586,6 +635,31 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
       }
     };
   }, [activeTool]);
+
+  useEffect(() => {
+    if (activeTool !== 'cut') {
+      return undefined;
+    }
+
+    const onKeyDown = (event) => {
+      if (isCutDragging || toolsDisabled) return;
+      if (!(event.ctrlKey || event.metaKey)) return;
+
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        handleUndo();
+        return;
+      }
+      if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        event.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeTool, isCutDragging, toolsDisabled, handleUndo, handleRedo]);
 
   useEffect(() => {
     const container = vtkContainerRef.current;
@@ -766,8 +840,9 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
     setError('');
     setIsVolumeReady(false);
     setActiveTool('navigate');
-    cutHistoryRef.current = [];
-    setUndoCount(0);
+    clearEdits(editHistoryRef.current);
+    setCanUndo(false);
+    setCanRedo(false);
     setCutStatus('');
     setIsCutDragging(false);
 
@@ -972,11 +1047,20 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
 
             <button
               type="button"
-              disabled={toolsDisabled || undoCount === 0 || isCutDragging}
+              disabled={toolsDisabled || !canUndo || isCutDragging}
               onClick={handleUndo}
               style={{ marginTop: '0.75rem' }}
             >
               Undo
+            </button>
+
+            <button
+              type="button"
+              disabled={toolsDisabled || !canRedo || isCutDragging}
+              onClick={handleRedo}
+              style={{ marginTop: '0.75rem', marginLeft: '0.5rem' }}
+            >
+              Redo
             </button>
           </>
         )}

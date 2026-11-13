@@ -217,18 +217,21 @@ function setThickness(value) {
   });
 }
 
-test('shows thickness and undo only in Cut mode', async () => {
+test('shows thickness, undo, and redo only in Cut mode', async () => {
   await renderReady();
   expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Redo' })).not.toBeInTheDocument();
 
   selectCut();
   expect(screen.getByRole('slider', { name: /Thickness/ })).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
 
   fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
   expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Redo' })).not.toBeInTheDocument();
   expect(scene.style.getEnabled()).toBe(true);
 });
 
@@ -317,20 +320,132 @@ test('a different scan clears history without modifying either scan', async () =
   expect(scene.values).toEqual(previousScan);
 });
 
-test('undo and thickness are disabled during a drag and restored after cancellation', async () => {
+test('undo, redo, and thickness are disabled during a drag and restored after cancellation', async () => {
   await renderReady();
   const original = scene.values.slice();
   const svg = selectCut();
   drag(svg);
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
   pointer(svg, 'pointerdown', 350, 350);
   expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
   expect(screen.getByRole('slider')).toBeDisabled();
 
   fireEvent.keyDown(window, { key: 'Escape' });
   pointer(svg, 'pointerup', 500, 350);
-  expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
   expect(screen.getByRole('slider')).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(scene.values).not.toEqual(original);
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
   expect(scene.values).toEqual(original);
   expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+});
+
+test('redo restores cut voxels after undo', async () => {
+  await renderReady();
+  const original = scene.values.slice();
+  const svg = selectCut();
+  setThickness(2);
+  drag(svg);
+  const afterCut = scene.values.slice();
+  expect(afterCut.filter((value) => value === -1000)).toHaveLength(315);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(scene.values).toEqual(original);
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+
+  const rendersBeforeRedo = scene.renderWindow.render.mock.calls.length;
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(scene.values).toEqual(afterCut);
+  expect(scene.scalars.dataChange).toHaveBeenCalled();
+  expect(scene.image.modified).toHaveBeenCalled();
+  expect(scene.renderWindow.render).toHaveBeenCalledTimes(rendersBeforeRedo + 1);
+  expect(screen.getByRole('status')).toHaveTextContent('Last cut redone.');
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+});
+
+test('overlapping cuts support multi-step undo and redo', async () => {
+  await renderReady();
+  const original = scene.values.slice();
+  const svg = selectCut();
+  setThickness(2);
+  drag(svg);
+  const afterFirstCut = scene.values.slice();
+  drag(svg, [400, 200], [400, 400]);
+  const afterSecondCut = scene.values.slice();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(scene.values).toEqual(afterFirstCut);
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(scene.values).toEqual(original);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(scene.values).toEqual(afterFirstCut);
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(scene.values).toEqual(afterSecondCut);
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+});
+
+test('a new cut after undo discards redo', async () => {
+  await renderReady();
+  const svg = selectCut();
+  setThickness(2);
+  drag(svg);
+  const firstCut = scene.values.slice();
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+
+  drag(svg, [400, 200], [400, 400]);
+  const replacementCut = scene.values.slice();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  expect(replacementCut).not.toEqual(firstCut);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(scene.values).toEqual(replacementCut);
+});
+
+test('redo still works after switching to Navigate and back to Cut', async () => {
+  await renderReady();
+  const svg = selectCut();
+  setThickness(2);
+  drag(svg);
+  const afterCut = scene.values.slice();
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+
+  fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
+  expect(scene.style.getEnabled()).toBe(true);
+  expect(screen.queryByLabelText('Cut drawing area')).not.toBeInTheDocument();
+
+  selectCut();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(scene.values).toEqual(afterCut);
+});
+
+test('keyboard shortcuts undo and redo cuts', async () => {
+  await renderReady();
+  const original = scene.values.slice();
+  const svg = selectCut();
+  setThickness(2);
+  drag(svg);
+  const afterCut = scene.values.slice();
+
+  fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+  expect(scene.values).toEqual(original);
+  expect(screen.getByRole('status')).toHaveTextContent('Last cut undone.');
+
+  fireEvent.keyDown(window, { key: 'y', ctrlKey: true });
+  expect(scene.values).toEqual(afterCut);
+  expect(screen.getByRole('status')).toHaveTextContent('Last cut redone.');
+
+  fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+  fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true });
+  expect(scene.values).toEqual(afterCut);
 });
