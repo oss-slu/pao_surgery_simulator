@@ -5,6 +5,7 @@ from sqlalchemy import String
 from sqlalchemy import Boolean
 from sqlalchemy import Float
 from sqlalchemy import Integer
+from sqlalchemy import JSON
 from sqlalchemy import TIMESTAMP
 from sqlalchemy import func
 from sqlalchemy.orm import Mapped
@@ -75,6 +76,9 @@ class Dicom(Base):
     upload_date: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     user: Mapped["User"] = relationship("User", back_populates="dicom_uploads")
     labels: Mapped[List["Label"]] = relationship("Label", back_populates="scan", cascade="all, delete-orphan")
+    history: Mapped["ScanHistory | None"] = relationship(
+        "ScanHistory", back_populates="scan", cascade="all, delete-orphan", uselist=False
+    )
 
 class Label(Base):
     __tablename__ = "labels"
@@ -90,6 +94,24 @@ class Label(Base):
     scan_id: Mapped[str] = mapped_column(ForeignKey("dicom_uploads.upload_id"), nullable=False, index=True)
     visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     scan: Mapped["Dicom"] = relationship("Dicom", back_populates="labels")
+
+class ScanHistory(Base):
+    __tablename__ = "scan_histories"
+    __table_args__ = (
+        CheckConstraint("revision >= 0", name="scan_history_revision_nonnegative"),
+        CheckConstraint("cursor >= 0", name="scan_history_cursor_nonnegative"),
+    )
+
+    scan_id: Mapped[str] = mapped_column(
+        ForeignKey("dicom_uploads.upload_id", ondelete="CASCADE"), primary_key=True
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cursor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now()
+    )
+    scan: Mapped["Dicom"] = relationship("Dicom", back_populates="history")
 
 class Patient_Scan(Base):
     __tablename__ = "patient_scans"

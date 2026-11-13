@@ -1,5 +1,6 @@
 import os
 import json
+import math
 from functools import wraps
 from types import SimpleNamespace
 import uuid
@@ -16,7 +17,7 @@ from flask_cors import CORS
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from db import connect, initialize_db
-from models import User, Dicom, Label
+from models import User, Dicom, Label, ScanHistory
 from session_tokens import create_session, validate_session, renew_session, revoke_session, SessionAuthenticationError
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -819,6 +820,234 @@ def toggle_label(scan_id, label_id):
     except Exception:
         app.logger.exception("Failed to toggle label visibility for scan_id=%s, label_id=%s", scan_id, label_id)
         return jsonify({"error": "An internal error has occurred"}), 500
+
+MAX_HISTORY_ACTIONS = 500
+MAX_STROKE_POINTS = 10_000
+
+
+def _history_response(history, scan_id):
+    if history is None:
+        return {
+            "scan_id": scan_id,
+            "revision": 0,
+            "cursor": 0,
+            "actions": [],
+        }
+    return {
+        "scan_id": scan_id,
+        "revision": history.revision,
+        "cursor": history.cursor,
+        "actions": history.actions if isinstance(history.actions, list) else [],
+    }
+
+
+def _is_finite_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _parse_vector3(value, field_name):
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        return None, f"{field_name} must be a length-3 numeric array"
+    try:
+        vector = [float(component) for component in value]
+    except (TypeError, ValueError):
+        return None, f"{field_name} must be a length-3 numeric array"
+    if not all(math.isfinite(component) for component in vector):
+        return None, f"{field_name} must contain finite numbers"
+    return vector, None
+
+
+def _validate_cut_action(action, index):
+    prefix = f"Action {index + 1}"
+    start, error = _parse_vector3(action.get("start"), f"{prefix}: start")
+    if error:
+        return None, error
+    end, error = _parse_vector3(action.get("end"), f"{prefix}: end")
+    if error:
+        return None, error
+    depth_direction, error = _parse_vector3(
+        action.get("depthDirection"), f"{prefix}: depthDirection"
+    )
+    if error:
+        return None, error
+
+    thickness = action.get("thickness")
+    if not _is_finite_number(thickness) or float(thickness) <= 0:
+        return None, f"{prefix}: thickness must be a number greater than zero"
+
+    empty_value = action.get("emptyValue", -1000)
+    if not _is_finite_number(empty_value):
+        return None, f"{prefix}: emptyValue must be a finite number"
+
+    return {
+        "type": "cut",
+        "start": start,
+        "end": end,
+        "depthDirection": depth_direction,
+        "thickness": float(thickness),
+        "emptyValue": float(empty_value),
+    }, None
+
+
+def _validate_marker_stroke_action(action, index):
+    prefix = f"Action {index + 1}"
+    stroke_id = action.get("strokeId")
+    color = action.get("color")
+    if not isinstance(stroke_id, str) or not stroke_id.strip():
+        return None, f"{prefix}: strokeId is required"
+    if not isinstance(color, str) or not color.strip():
+        return None, f"{prefix}: color is required"
+
+    points = action.get("points")
+    if not isinstance(points, list):
+        return None, f"{prefix}: points must be a list"
+    if len(points) > MAX_STROKE_POINTS:
+        return None, f"{prefix}: points exceeds limit of {MAX_STROKE_POINTS}"
+
+    parsed_points = []
+    for point_index, point in enumerate(points):
+        parsed, error = _parse_vector3(point, f"{prefix}: points[{point_index}]")
+        if error:
+            return None, error
+        parsed_points.append(parsed)
+
+    markers = action.get("markers")
+    if not isinstance(markers, list):
+        return None, f"{prefix}: markers must be a list"
+    if len(markers) > MAX_STROKE_POINTS:
+        return None, f"{prefix}: markers exceeds limit of {MAX_STROKE_POINTS}"
+
+    parsed_markers = []
+    for marker_index, marker in enumerate(markers):
+        marker_prefix = f"{prefix}: markers[{marker_index}]"
+        if not isinstance(marker, dict):
+            return None, f"{marker_prefix} must be an object"
+        marker_id = marker.get("id")
+        marker_stroke_id = marker.get("strokeId")
+        marker_color = marker.get("color")
+        if not isinstance(marker_id, str) or not marker_id.strip():
+            return None, f"{marker_prefix}: id is required"
+        if not isinstance(marker_stroke_id, str) or not marker_stroke_id.strip():
+            return None, f"{marker_prefix}: strokeId is required"
+        if not isinstance(marker_color, str) or not marker_color.strip():
+            return None, f"{marker_prefix}: color is required"
+        coordinates = _parse_coordinates(marker)
+        if coordinates is None:
+            return None, (
+                f"{marker_prefix}: coordinates must include numeric x, y, and z values"
+            )
+        parsed_markers.append({
+            "id": marker_id.strip(),
+            "strokeId": marker_stroke_id.strip(),
+            "coordinates": {
+                "x": coordinates[0],
+                "y": coordinates[1],
+                "z": coordinates[2],
+            },
+            "color": marker_color.strip(),
+        })
+
+    return {
+        "type": "markerStroke",
+        "strokeId": stroke_id.strip(),
+        "color": color.strip(),
+        "points": parsed_points,
+        "markers": parsed_markers,
+    }, None
+
+
+def _validate_history_payload(data):
+    if not isinstance(data, dict):
+        return None, "Missing data"
+
+    revision = data.get("revision")
+    if type(revision) is not int or revision < 0:
+        return None, "revision must be a non-negative integer"
+
+    actions = data.get("actions")
+    if not isinstance(actions, list):
+        return None, "actions must be a list"
+    if len(actions) > MAX_HISTORY_ACTIONS:
+        return None, f"actions exceeds limit of {MAX_HISTORY_ACTIONS}"
+
+    cursor = data.get("cursor")
+    if type(cursor) is not int or cursor < 0 or cursor > len(actions):
+        return None, "cursor must be an integer between 0 and len(actions)"
+
+    parsed_actions = []
+    for index, action in enumerate(actions):
+        if not isinstance(action, dict):
+            return None, f"Action {index + 1} must be an object"
+        action_type = action.get("type")
+        if action_type == "cut":
+            parsed, error = _validate_cut_action(action, index)
+        elif action_type == "markerStroke":
+            parsed, error = _validate_marker_stroke_action(action, index)
+        else:
+            return None, f"Action {index + 1}: type must be 'cut' or 'markerStroke'"
+        if error:
+            return None, error
+        parsed_actions.append(parsed)
+
+    return (revision, cursor, parsed_actions), None
+
+
+@app.route("/api/scans/<scan_id>/history", methods=["GET"])
+@require_session
+@require_scan_owner
+def get_scan_history(scan_id):
+    try:
+        with connect() as db:
+            history = db.query(ScanHistory).filter_by(scan_id=scan_id).first()
+            return jsonify(_history_response(history, scan_id)), 200
+    except Exception:
+        app.logger.exception("Failed to get history for scan_id=%s", scan_id)
+        return jsonify({"error": "An internal error has occurred"}), 500
+
+
+@app.route("/api/scans/<scan_id>/history", methods=["PUT"])
+@require_session
+@require_scan_owner
+def put_scan_history(scan_id):
+    data = request.get_json(silent=True)
+    parsed, error = _validate_history_payload(data)
+    if error:
+        return jsonify({"error": error}), 400
+    revision, cursor, actions = parsed
+
+    try:
+        with connect() as db:
+            scan = db.query(Dicom).filter_by(upload_id=scan_id).first()
+            if not scan:
+                return jsonify({"error": "Scan not found"}), 404
+
+            history = db.query(ScanHistory).filter_by(scan_id=scan_id).first()
+            current_revision = history.revision if history is not None else 0
+            if revision != current_revision:
+                response = _history_response(history, scan_id)
+                response["error"] = "History revision conflict"
+                response["code"] = "REVISION_CONFLICT"
+                return jsonify(response), 409
+
+            if history is None:
+                history = ScanHistory(
+                    scan_id=scan_id,
+                    revision=1,
+                    cursor=cursor,
+                    actions=actions,
+                )
+                db.add(history)
+            else:
+                history.revision = current_revision + 1
+                history.cursor = cursor
+                history.actions = actions
+
+            db.flush()
+            return jsonify(_history_response(history, scan_id)), 200
+    except Exception:
+        app.logger.exception("Failed to save history for scan_id=%s", scan_id)
+        return jsonify({"error": "An internal error has occurred"}), 500
+
 
 @app.route("/api/render_dicom/<upload_id>", methods=["GET", "POST"])
 @require_session
