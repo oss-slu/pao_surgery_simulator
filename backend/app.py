@@ -993,6 +993,7 @@ def _validate_history_payload(data):
 
 
 @app.route("/api/scans/<scan_id>/history", methods=["GET"])
+@app.route("/api/scans/<scan_id>/history/list", methods=["POST"])
 @require_session
 @require_scan_owner
 def get_scan_history(scan_id):

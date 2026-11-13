@@ -100,6 +100,7 @@ DICOM_ROUTES = [
     ("GET", "/api/download_dicom/owned"),
     ("GET", "/api/scans/owned/labels"),
     ("GET", "/api/scans/owned/history"),
+    ("POST", "/api/scans/owned/history/list"),
     ("PUT", "/api/scans/owned/history"),
 ]
 
@@ -142,8 +143,8 @@ def test_owner_can_read_labels(client, issued, session_db):
 
 def test_owner_can_put_and_get_history(client, issued, session_db):
     token = issued["session_token"]
-    empty = client.get(
-        "/api/scans/owned/history",
+    empty = client.post(
+        "/api/scans/owned/history/list",
         json={"session_token": token},
     )
     assert empty.status_code == 200

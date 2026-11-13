@@ -562,3 +562,111 @@ test('keyboard shortcuts undo marker strokes in Marker mode', async () => {
   fireEvent.keyDown(window, { key: 'y', ctrlKey: true });
   expect(onMarkerStrokeAdded).toHaveBeenCalledTimes(2);
 });
+
+test('onHistoryChange emits persisted cut geometry after a cut', async () => {
+  const onHistoryChange = jest.fn();
+  await renderReady({ onHistoryChange });
+  const svg = selectCut();
+  setThickness(2);
+  drag(svg);
+
+  expect(onHistoryChange).toHaveBeenCalled();
+  const snapshot = onHistoryChange.mock.calls.at(-1)[0];
+  expect(snapshot.cursor).toBe(1);
+  expect(snapshot.actions[0]).toEqual(expect.objectContaining({
+    type: 'cut',
+    thickness: 2,
+    start: expect.any(Array),
+    end: expect.any(Array),
+    depthDirection: expect.any(Array),
+  }));
+  expect(snapshot.actions[0].indices).toBeUndefined();
+  expect(snapshot.actions[0].imageData).toBeUndefined();
+});
+
+test('restoredHistory replays cuts and markers onto the original volume', async () => {
+  const onMarkerStrokeAdded = jest.fn();
+  HTMLCanvasElement.prototype.getContext.mockReturnValue({
+    setTransform: jest.fn(),
+    clearRect: jest.fn(),
+    beginPath: jest.fn(),
+    moveTo: jest.fn(),
+    lineTo: jest.fn(),
+    stroke: jest.fn(),
+  });
+
+  const restoredHistory = {
+    cursor: 2,
+    actions: [
+      {
+        type: 'cut',
+        start: [-5, 0, 0],
+        end: [5, 0, 0],
+        depthDirection: [0, 0, -1],
+        thickness: 2,
+        emptyValue: -1000,
+      },
+      {
+        type: 'markerStroke',
+        strokeId: 'stroke-restored',
+        color: '#00ff00',
+        points: [[0, 0, 0]],
+        markers: [{
+          id: 'marker-restored',
+          strokeId: 'stroke-restored',
+          coordinates: { x: 0, y: 0, z: 0 },
+          color: '#00ff00',
+        }],
+      },
+    ],
+  };
+
+  await renderReady({
+    onMarkerStrokeAdded,
+    restoredHistory,
+    historyRestoreKey: 1,
+  });
+
+  await waitFor(() => {
+    expect(scene.values.some((value) => value === -1000)).toBe(true);
+  });
+  expect(onMarkerStrokeAdded).toHaveBeenCalledWith({
+    strokeId: 'stroke-restored',
+    markers: restoredHistory.actions[1].markers,
+  });
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cut' }));
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+});
+
+test('restored redo-tail cut applies on Redo', async () => {
+  const restoredHistory = {
+    cursor: 0,
+    actions: [
+      {
+        type: 'cut',
+        start: [-5, 0, 0],
+        end: [5, 0, 0],
+        depthDirection: [0, 0, -1],
+        thickness: 2,
+        emptyValue: -1000,
+      },
+    ],
+  };
+
+  await renderReady({
+    restoredHistory,
+    historyRestoreKey: 2,
+  });
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cut' }));
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+  const before = scene.values.slice();
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(scene.values).not.toEqual(before);
+  expect(scene.values.some((value) => value === -1000)).toBe(true);
+});
