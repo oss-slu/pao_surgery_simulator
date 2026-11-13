@@ -201,7 +201,7 @@ function Viewer() {
         setModelUrl(`${API_BASE}/api/render_dicom/${encodeURIComponent(uploadId)}`);
 
         let cancelled = false;
-        (async () => {
+        void (async () => {
             try {
                 const history = await fetchHistory(uploadId);
                 if (cancelled || generation !== saveGenerationRef.current) return;

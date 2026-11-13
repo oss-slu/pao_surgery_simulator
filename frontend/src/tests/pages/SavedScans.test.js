@@ -104,6 +104,15 @@ function DashboardAndViewerRoutes() {
   );
 }
 
+function renderViewer(route = '/viewer/scan-42') {
+  return renderWithRouter(
+    <Routes>
+      <Route path="/viewer/:uploadId" element={<Viewer />} />
+    </Routes>,
+    { route }
+  );
+}
+
 beforeEach(() => {
   fetchHistory.mockReset();
   saveHistory.mockReset();
@@ -192,12 +201,7 @@ test('uploads drawn marker coordinates through the label endpoint', async () => 
     json: async () => ({ label_id: 1 }),
   });
 
-  renderWithRouter(
-    <Routes>
-      <Route path="/viewer/:uploadId" element={<Viewer />} />
-    </Routes>,
-    { route: '/viewer/scan-42' }
-  );
+  renderViewer();
   await user.click(screen.getByRole('button', { name: 'Add test marker' }));
   await user.click(screen.getByRole('button', { name: 'Upload markers (1)' }));
 
@@ -228,12 +232,7 @@ test('marker stroke undo clears the upload queue and uploaded ids are not re-que
     json: async () => ({ label_id: 1 }),
   });
 
-  renderWithRouter(
-    <Routes>
-      <Route path="/viewer/:uploadId" element={<Viewer />} />
-    </Routes>,
-    { route: '/viewer/scan-42' }
-  );
+  renderViewer();
 
   await user.click(screen.getByRole('button', { name: 'Add test marker' }));
   expect(screen.getByRole('button', { name: 'Upload markers (1)' })).toBeEnabled();
@@ -261,12 +260,7 @@ test('loads history on open and saves after local edits', async () => {
     actions: [],
   });
 
-  renderWithRouter(
-    <Routes>
-      <Route path="/viewer/:uploadId" element={<Viewer />} />
-    </Routes>,
-    { route: '/viewer/scan-42' }
-  );
+  renderViewer();
 
   await waitFor(() => expect(fetchHistory).toHaveBeenCalledWith('scan-42'));
   await user.click(screen.getByRole('button', { name: 'Add test marker' }));
@@ -300,12 +294,7 @@ test('shows retry after history save failure and reloads on revision conflict', 
     .mockRejectedValueOnce(Object.assign(new Error('network'), { status: 500 }))
     .mockRejectedValueOnce(conflict);
 
-  renderWithRouter(
-    <Routes>
-      <Route path="/viewer/:uploadId" element={<Viewer />} />
-    </Routes>,
-    { route: '/viewer/scan-42' }
-  );
+  renderViewer();
 
   await waitFor(() => expect(fetchHistory).toHaveBeenCalled());
   await user.click(screen.getByRole('button', { name: 'Add test marker' }));

@@ -1002,7 +1002,7 @@ def get_scan_history(scan_id):
             history = db.query(ScanHistory).filter_by(scan_id=scan_id).first()
             return jsonify(_history_response(history, scan_id)), 200
     except Exception:
-        app.logger.exception("Failed to get history for scan_id=%s", scan_id)
+        app.logger.exception("Failed to get scan history")
         return jsonify({"error": "An internal error has occurred"}), 500
 
 
@@ -1046,7 +1046,7 @@ def put_scan_history(scan_id):
             db.flush()
             return jsonify(_history_response(history, scan_id)), 200
     except Exception:
-        app.logger.exception("Failed to save history for scan_id=%s", scan_id)
+        app.logger.exception("Failed to save scan history")
         return jsonify({"error": "An internal error has occurred"}), 500
 
 

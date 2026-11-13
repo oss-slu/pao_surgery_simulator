@@ -185,6 +185,24 @@ function selectMarker(view) {
   return prepareMarkerSurface(view);
 }
 
+function mockDrawingCanvas() {
+  HTMLCanvasElement.prototype.getContext.mockReturnValue({
+    setTransform: jest.fn(),
+    clearRect: jest.fn(),
+    beginPath: jest.fn(),
+    moveTo: jest.fn(),
+    lineTo: jest.fn(),
+    stroke: jest.fn(),
+  });
+}
+
+function markerHistoryFns() {
+  return {
+    onMarkerStrokeAdded: jest.fn(),
+    onMarkerStrokeRemoved: jest.fn(),
+  };
+}
+
 test('marker tool commits a whole stroke and supports choosing a color', async () => {
   const onMarkerStrokeAdded = jest.fn();
   const canvasContext = {
@@ -469,16 +487,8 @@ test('keyboard shortcuts undo and redo cuts', async () => {
 });
 
 test('marker stroke undo and redo notify the parent as a whole stroke', async () => {
-  const onMarkerStrokeAdded = jest.fn();
-  const onMarkerStrokeRemoved = jest.fn();
-  HTMLCanvasElement.prototype.getContext.mockReturnValue({
-    setTransform: jest.fn(),
-    clearRect: jest.fn(),
-    beginPath: jest.fn(),
-    moveTo: jest.fn(),
-    lineTo: jest.fn(),
-    stroke: jest.fn(),
-  });
+  const { onMarkerStrokeAdded, onMarkerStrokeRemoved } = markerHistoryFns();
+  mockDrawingCanvas();
   const view = await renderReady({ onMarkerStrokeAdded, onMarkerStrokeRemoved });
   const vtkContainer = selectMarker(view);
   drag(vtkContainer, [400, 300], [440, 320]);
@@ -502,16 +512,8 @@ test('marker stroke undo and redo notify the parent as a whole stroke', async ()
 });
 
 test('shared history undoes marker then cut and discards redo after a new stroke', async () => {
-  const onMarkerStrokeAdded = jest.fn();
-  const onMarkerStrokeRemoved = jest.fn();
-  HTMLCanvasElement.prototype.getContext.mockReturnValue({
-    setTransform: jest.fn(),
-    clearRect: jest.fn(),
-    beginPath: jest.fn(),
-    moveTo: jest.fn(),
-    lineTo: jest.fn(),
-    stroke: jest.fn(),
-  });
+  const { onMarkerStrokeAdded, onMarkerStrokeRemoved } = markerHistoryFns();
+  mockDrawingCanvas();
   const view = await renderReady({ onMarkerStrokeAdded, onMarkerStrokeRemoved });
   const original = scene.values.slice();
 
@@ -541,16 +543,8 @@ test('shared history undoes marker then cut and discards redo after a new stroke
 });
 
 test('keyboard shortcuts undo marker strokes in Marker mode', async () => {
-  const onMarkerStrokeAdded = jest.fn();
-  const onMarkerStrokeRemoved = jest.fn();
-  HTMLCanvasElement.prototype.getContext.mockReturnValue({
-    setTransform: jest.fn(),
-    clearRect: jest.fn(),
-    beginPath: jest.fn(),
-    moveTo: jest.fn(),
-    lineTo: jest.fn(),
-    stroke: jest.fn(),
-  });
+  const { onMarkerStrokeAdded, onMarkerStrokeRemoved } = markerHistoryFns();
+  mockDrawingCanvas();
   const view = await renderReady({ onMarkerStrokeAdded, onMarkerStrokeRemoved });
   const vtkContainer = selectMarker(view);
   drag(vtkContainer, [400, 300], [440, 320]);
@@ -586,14 +580,7 @@ test('onHistoryChange emits persisted cut geometry after a cut', async () => {
 
 test('restoredHistory replays cuts and markers onto the original volume', async () => {
   const onMarkerStrokeAdded = jest.fn();
-  HTMLCanvasElement.prototype.getContext.mockReturnValue({
-    setTransform: jest.fn(),
-    clearRect: jest.fn(),
-    beginPath: jest.fn(),
-    moveTo: jest.fn(),
-    lineTo: jest.fn(),
-    stroke: jest.fn(),
-  });
+  mockDrawingCanvas();
 
   const restoredHistory = {
     cursor: 2,
