@@ -165,8 +165,28 @@ function drag(svg, start = [300, 300], end = [500, 300]) {
   pointer(svg, 'pointerup', ...end);
 }
 
-test('marker tool adds volume coordinates and supports choosing a color', async () => {
-  const onMarkerAdded = jest.fn();
+function prepareMarkerSurface(view) {
+  const vtkContainer = view.container.querySelector('canvas').parentElement.firstElementChild;
+  const bounds = {
+    left: 100,
+    top: 50,
+    right: 900,
+    bottom: 650,
+    width: 800,
+    height: 600,
+  };
+  vtkContainer.getBoundingClientRect = () => bounds;
+  view.container.querySelector('canvas').getBoundingClientRect = () => bounds;
+  return vtkContainer;
+}
+
+function selectMarker(view) {
+  fireEvent.click(screen.getByRole('button', { name: 'Marker' }));
+  return prepareMarkerSurface(view);
+}
+
+test('marker tool commits a whole stroke and supports choosing a color', async () => {
+  const onMarkerStrokeAdded = jest.fn();
   const canvasContext = {
     setTransform: jest.fn(),
     clearRect: jest.fn(),
@@ -176,39 +196,32 @@ test('marker tool adds volume coordinates and supports choosing a color', async 
     stroke: jest.fn(),
   };
   HTMLCanvasElement.prototype.getContext.mockReturnValue(canvasContext);
-  const view = await renderReady({ onMarkerAdded });
-  const vtkContainer = view.container.querySelector('canvas').parentElement.firstElementChild;
-  vtkContainer.getBoundingClientRect = () => ({
-    left: 100,
-    top: 50,
-    right: 900,
-    bottom: 650,
-    width: 800,
-    height: 600,
-  });
-  view.container.querySelector('canvas').getBoundingClientRect = () => ({
-    left: 100,
-    top: 50,
-    right: 900,
-    bottom: 650,
-    width: 800,
-    height: 600,
-  });
-
-  fireEvent.click(screen.getByRole('button', { name: 'Marker' }));
+  const view = await renderReady({ onMarkerStrokeAdded });
+  const vtkContainer = selectMarker(view);
   fireEvent.change(screen.getByLabelText('Marker color'), { target: { value: '#00ff00' } });
   pointer(vtkContainer, 'pointerdown', 400, 300);
-  pointer(vtkContainer, 'pointerup', 400, 300);
+  pointer(vtkContainer, 'pointermove', 420, 310);
+  pointer(vtkContainer, 'pointerup', 420, 310);
 
-  expect(onMarkerAdded).toHaveBeenCalledWith(expect.objectContaining({
-    coordinates: expect.objectContaining({
-      x: expect.any(Number),
-      y: expect.any(Number),
-      z: expect.any(Number),
-    }),
-    color: '#00ff00',
+  expect(onMarkerStrokeAdded).toHaveBeenCalledTimes(1);
+  expect(onMarkerStrokeAdded).toHaveBeenCalledWith(expect.objectContaining({
+    strokeId: expect.any(String),
+    markers: expect.arrayContaining([
+      expect.objectContaining({
+        id: expect.any(String),
+        strokeId: expect.any(String),
+        coordinates: expect.objectContaining({
+          x: expect.any(Number),
+          y: expect.any(Number),
+          z: expect.any(Number),
+        }),
+        color: '#00ff00',
+      }),
+    ]),
   }));
   expect(canvasContext.stroke).toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
 });
 
 function setThickness(value) {
@@ -217,7 +230,7 @@ function setThickness(value) {
   });
 }
 
-test('shows thickness, undo, and redo only in Cut mode', async () => {
+test('shows undo and redo in Cut and Marker modes, thickness only in Cut', async () => {
   await renderReady();
   expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
@@ -225,6 +238,11 @@ test('shows thickness, undo, and redo only in Cut mode', async () => {
 
   selectCut();
   expect(screen.getByRole('slider', { name: /Thickness/ })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Marker' }));
+  expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
 
@@ -448,4 +466,99 @@ test('keyboard shortcuts undo and redo cuts', async () => {
   fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
   fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true });
   expect(scene.values).toEqual(afterCut);
+});
+
+test('marker stroke undo and redo notify the parent as a whole stroke', async () => {
+  const onMarkerStrokeAdded = jest.fn();
+  const onMarkerStrokeRemoved = jest.fn();
+  HTMLCanvasElement.prototype.getContext.mockReturnValue({
+    setTransform: jest.fn(),
+    clearRect: jest.fn(),
+    beginPath: jest.fn(),
+    moveTo: jest.fn(),
+    lineTo: jest.fn(),
+    stroke: jest.fn(),
+  });
+  const view = await renderReady({ onMarkerStrokeAdded, onMarkerStrokeRemoved });
+  const vtkContainer = selectMarker(view);
+  drag(vtkContainer, [400, 300], [440, 320]);
+
+  expect(onMarkerStrokeAdded).toHaveBeenCalledTimes(1);
+  const { strokeId, markers } = onMarkerStrokeAdded.mock.calls[0][0];
+  expect(markers.length).toBeGreaterThan(0);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(onMarkerStrokeRemoved).toHaveBeenCalledWith(strokeId);
+  expect(screen.getByRole('status')).toHaveTextContent('Last marker stroke undone.');
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(onMarkerStrokeAdded).toHaveBeenCalledTimes(2);
+  expect(onMarkerStrokeAdded).toHaveBeenLastCalledWith({
+    strokeId,
+    markers,
+  });
+  expect(screen.getByRole('status')).toHaveTextContent('Last marker stroke redone.');
+});
+
+test('shared history undoes marker then cut and discards redo after a new stroke', async () => {
+  const onMarkerStrokeAdded = jest.fn();
+  const onMarkerStrokeRemoved = jest.fn();
+  HTMLCanvasElement.prototype.getContext.mockReturnValue({
+    setTransform: jest.fn(),
+    clearRect: jest.fn(),
+    beginPath: jest.fn(),
+    moveTo: jest.fn(),
+    lineTo: jest.fn(),
+    stroke: jest.fn(),
+  });
+  const view = await renderReady({ onMarkerStrokeAdded, onMarkerStrokeRemoved });
+  const original = scene.values.slice();
+
+  const cutSvg = selectCut();
+  setThickness(2);
+  drag(cutSvg);
+  const afterCut = scene.values.slice();
+
+  const markerSurface = selectMarker(view);
+  drag(markerSurface, [400, 300], [440, 320]);
+  const firstStrokeId = onMarkerStrokeAdded.mock.calls[0][0].strokeId;
+
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(onMarkerStrokeRemoved).toHaveBeenCalledWith(firstStrokeId);
+  expect(scene.values).toEqual(afterCut);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(scene.values).toEqual(original);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(scene.values).toEqual(afterCut);
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+
+  drag(markerSurface, [360, 280], [390, 300]);
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  expect(onMarkerStrokeAdded).toHaveBeenCalledTimes(2);
+});
+
+test('keyboard shortcuts undo marker strokes in Marker mode', async () => {
+  const onMarkerStrokeAdded = jest.fn();
+  const onMarkerStrokeRemoved = jest.fn();
+  HTMLCanvasElement.prototype.getContext.mockReturnValue({
+    setTransform: jest.fn(),
+    clearRect: jest.fn(),
+    beginPath: jest.fn(),
+    moveTo: jest.fn(),
+    lineTo: jest.fn(),
+    stroke: jest.fn(),
+  });
+  const view = await renderReady({ onMarkerStrokeAdded, onMarkerStrokeRemoved });
+  const vtkContainer = selectMarker(view);
+  drag(vtkContainer, [400, 300], [440, 320]);
+  const { strokeId } = onMarkerStrokeAdded.mock.calls[0][0];
+
+  fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+  expect(onMarkerStrokeRemoved).toHaveBeenCalledWith(strokeId);
+
+  fireEvent.keyDown(window, { key: 'y', ctrlKey: true });
+  expect(onMarkerStrokeAdded).toHaveBeenCalledTimes(2);
 });

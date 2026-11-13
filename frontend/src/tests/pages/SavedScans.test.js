@@ -9,19 +9,47 @@ import { clearAuthStorage, renderWithRouter, seedAuthStorage } from '../test-uti
 
 jest.mock('../../components/VTKViewer', () => ({
   __esModule: true,
-  default: function VTKViewerStub({ modelUrl, onMarkerAdded }) {
+  default: function VTKViewerStub({
+    modelUrl,
+    onMarkerStrokeAdded,
+    onMarkerStrokeRemoved,
+  }) {
     return (
       <>
         <div data-testid="vtk-model-url">{modelUrl}</div>
         <button
           type="button"
-          onClick={() => onMarkerAdded({
-            id: 'marker-1',
-            coordinates: { x: 1, y: 2, z: 3 },
-            color: '#ff0000',
+          onClick={() => onMarkerStrokeAdded({
+            strokeId: 'stroke-1',
+            markers: [{
+              id: 'marker-1',
+              strokeId: 'stroke-1',
+              coordinates: { x: 1, y: 2, z: 3 },
+              color: '#ff0000',
+            }],
           })}
         >
           Add test marker
+        </button>
+        <button
+          type="button"
+          onClick={() => onMarkerStrokeRemoved('stroke-1')}
+        >
+          Undo test marker stroke
+        </button>
+        <button
+          type="button"
+          onClick={() => onMarkerStrokeAdded({
+            strokeId: 'stroke-1',
+            markers: [{
+              id: 'marker-1',
+              strokeId: 'stroke-1',
+              coordinates: { x: 1, y: 2, z: 3 },
+              color: '#ff0000',
+            }],
+          })}
+        >
+          Redo test marker stroke
         </button>
       </>
     );
@@ -150,4 +178,36 @@ test('uploads drawn marker coordinates through the label endpoint', async () => 
     scan_3d_id: 'scan-42',
   }));
   expect(screen.getByRole('button', { name: 'Upload markers (0)' })).toBeDisabled();
+});
+
+test('marker stroke undo clears the upload queue and uploaded ids are not re-queued', async () => {
+  const user = userEvent.setup();
+  seedAuthStorage({ userId: '9', userName: 'surgeon' });
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ label_id: 1 }),
+  });
+
+  renderWithRouter(
+    <Routes>
+      <Route path="/viewer/:uploadId" element={<Viewer />} />
+    </Routes>,
+    { route: '/viewer/scan-42' }
+  );
+
+  await user.click(screen.getByRole('button', { name: 'Add test marker' }));
+  expect(screen.getByRole('button', { name: 'Upload markers (1)' })).toBeEnabled();
+
+  await user.click(screen.getByRole('button', { name: 'Undo test marker stroke' }));
+  expect(screen.getByRole('button', { name: 'Upload markers (0)' })).toBeDisabled();
+
+  await user.click(screen.getByRole('button', { name: 'Add test marker' }));
+  await user.click(screen.getByRole('button', { name: 'Upload markers (1)' }));
+  expect(await screen.findByRole('status')).toHaveTextContent('Uploaded 1 marker(s).');
+  expect(screen.getByRole('button', { name: 'Upload markers (0)' })).toBeDisabled();
+
+  await user.click(screen.getByRole('button', { name: 'Undo test marker stroke' }));
+  await user.click(screen.getByRole('button', { name: 'Redo test marker stroke' }));
+  expect(screen.getByRole('button', { name: 'Upload markers (0)' })).toBeDisabled();
+  expect(global.fetch).toHaveBeenCalledTimes(1);
 });

@@ -22,10 +22,24 @@ function Viewer() {
     const [markers, setMarkers] = useState([]);
     const [isUploadingMarkers, setIsUploadingMarkers] = useState(false);
     const markersRef = useRef([]);
+    const uploadedIdsRef = useRef(new Set());
     const isUploadingMarkersRef = useRef(false);
 
-    const addMarker = useCallback((marker) => {
-        const updatedMarkers = [...markersRef.current, marker];
+    const addMarkerStroke = useCallback(({ markers: strokeMarkers }) => {
+        const toAdd = strokeMarkers.filter(
+            (marker) => !uploadedIdsRef.current.has(marker.id)
+        );
+        if (toAdd.length === 0) return;
+
+        const updatedMarkers = [...markersRef.current, ...toAdd];
+        markersRef.current = updatedMarkers;
+        setMarkers(updatedMarkers);
+    }, []);
+
+    const removeMarkerStroke = useCallback((strokeId) => {
+        const updatedMarkers = markersRef.current.filter(
+            (marker) => marker.strokeId !== strokeId
+        );
         markersRef.current = updatedMarkers;
         setMarkers(updatedMarkers);
     }, []);
@@ -60,6 +74,7 @@ function Viewer() {
                 }
 
                 uploadedCount += 1;
+                uploadedIdsRef.current.add(marker.id);
                 const remainingMarkers = markersRef.current.filter(({ id }) => id !== marker.id);
                 markersRef.current = remainingMarkers;
                 setMarkers(remainingMarkers);
@@ -79,6 +94,7 @@ function Viewer() {
 
     useEffect(() => {
         markersRef.current = [];
+        uploadedIdsRef.current = new Set();
         setMarkers([]);
         setLabelStatus("");
         // Construct the VTI model URL served by the Flask backend
@@ -161,7 +177,13 @@ function Viewer() {
             </header>
 
             <main style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                {modelUrl && <VTKViewer modelUrl={modelUrl} onMarkerAdded={addMarker} />}
+                {modelUrl && (
+                    <VTKViewer
+                        modelUrl={modelUrl}
+                        onMarkerStrokeAdded={addMarkerStroke}
+                        onMarkerStrokeRemoved={removeMarkerStroke}
+                    />
+                )}
             </main>
         </div>
     );
