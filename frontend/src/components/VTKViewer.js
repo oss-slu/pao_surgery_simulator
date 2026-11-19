@@ -495,6 +495,57 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
 
   const toolsDisabled = !modelUrl || !isVolumeReady || isLoading || Boolean(error);
 
+  useEffect(() => {
+    const toolByKey = {
+      n: 'navigate',
+      m: 'marker',
+      c: 'cut',
+    };
+
+    const onKeyDown = (event) => {
+      if (
+        toolsDisabled ||
+        event.defaultPrevented ||
+        event.repeat ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.target?.closest?.(
+          'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+        )
+      ) {
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'r') {
+        const vtk = context.current;
+        if (!vtk?.initialCameraState) return;
+
+        event.preventDefault();
+        const camera = vtk.renderer.getActiveCamera();
+        const initialCameraState = vtk.initialCameraState;
+        camera.setPosition(...initialCameraState.position);
+        camera.setFocalPoint(...initialCameraState.focalPoint);
+        camera.setViewUp(...initialCameraState.viewUp);
+        camera.setParallelProjection(initialCameraState.parallelProjection);
+        camera.setParallelScale(initialCameraState.parallelScale);
+        camera.setClippingRange(...initialCameraState.clippingRange);
+        vtk.renderWindow.render();
+        return;
+      }
+
+      const tool = toolByKey[event.key.toLowerCase()];
+      if (!tool) return;
+
+      event.preventDefault();
+      setActiveTool(tool);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [toolsDisabled]);
+
   const recordCut = useCallback((cut) => {
     if (cut.imageData !== context.current?.mapper.getInputData()) return;
 
@@ -791,6 +842,15 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
         context.current.volumeAttached = true;
         genericRenderWindow.resize();
         renderer.resetCamera();
+        const camera = renderer.getActiveCamera();
+        context.current.initialCameraState = {
+          position: [...camera.getPosition()],
+          focalPoint: [...camera.getFocalPoint()],
+          viewUp: [...camera.getViewUp()],
+          parallelProjection: camera.getParallelProjection(),
+          parallelScale: camera.getParallelScale(),
+          clippingRange: [...camera.getClippingRange()],
+        };
         renderWindow.render();
         drawingCanvasRef.current?.getContext('2d')?.clearRect(
           0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height
@@ -980,6 +1040,15 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
             </button>
           </>
         )}
+        <details style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}>
+          <summary>Keyboard shortcuts</summary>
+          <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
+            <li><kbd>N</kbd> Navigate</li>
+            <li><kbd>M</kbd> Marker / draw</li>
+            <li><kbd>C</kbd> Cut</li>
+            <li><kbd>R</kbd> Reset view</li>
+          </ul>
+        </details>
       </fieldset>
 
       {isLoading && (
