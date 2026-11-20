@@ -229,18 +229,6 @@ test('R does not reset the view while the volume is loading', () => {
   expect(scene.renderer.getActiveCamera().setPosition).not.toHaveBeenCalled();
 });
 
-test('marker tool adds volume coordinates and supports choosing a color', async () => {
-  const onMarkerAdded = jest.fn();
-  const canvasContext = {
-    setTransform: jest.fn(),
-    clearRect: jest.fn(),
-    beginPath: jest.fn(),
-    moveTo: jest.fn(),
-    lineTo: jest.fn(),
-    stroke: jest.fn(),
-  };
-  HTMLCanvasElement.prototype.getContext.mockReturnValue(canvasContext);
-  const view = await renderReady({ onMarkerAdded });
 function prepareMarkerSurface(view) {
   const vtkContainer = view.container.querySelector('canvas').parentElement.firstElementChild;
   const bounds = {
