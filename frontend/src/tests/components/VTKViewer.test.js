@@ -52,8 +52,14 @@ beforeEach(() => {
   };
   const camera = {
     setParallelProjection: jest.fn(),
+    setPosition: jest.fn(),
+    setFocalPoint: jest.fn(),
+    setViewUp: jest.fn(),
+    setParallelScale: jest.fn(),
+    setClippingRange: jest.fn(),
     getPosition: () => [0, 0, 10],
     getFocalPoint: () => [0, 0, 0],
+    getViewUp: () => [0, 1, 0],
     getClippingRange: () => [0.1, 100],
     getParallelProjection: () => true,
     getDirectionOfProjection: () => [0, 0, -1],
@@ -164,6 +170,64 @@ function drag(svg, start = [300, 300], end = [500, 300]) {
   pointer(svg, 'pointermove', ...end);
   pointer(svg, 'pointerup', ...end);
 }
+
+test('keyboard shortcuts switch between viewer tools and are discoverable', async () => {
+  await renderReady();
+  expect(screen.getByText('Keyboard shortcuts')).toBeInTheDocument();
+
+  fireEvent.keyDown(window, { key: 'm' });
+  expect(screen.getByRole('button', { name: 'Marker' })).toHaveAttribute('aria-pressed', 'true');
+
+  fireEvent.keyDown(window, { key: 'c' });
+  expect(screen.getByRole('button', { name: 'Cut' })).toHaveAttribute('aria-pressed', 'true');
+
+  fireEvent.keyDown(window, { key: 'n' });
+  expect(screen.getByRole('button', { name: 'Navigate' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('R restores the initial camera pose and renders after the volume is ready', async () => {
+  await renderReady();
+  const resetCalls = scene.renderer.resetCamera.mock.calls.length;
+  const renderCalls = scene.renderWindow.render.mock.calls.length;
+
+  fireEvent.keyDown(window, { key: 'r' });
+
+  expect(scene.renderer.resetCamera).toHaveBeenCalledTimes(resetCalls);
+  expect(scene.renderer.getActiveCamera().setPosition).toHaveBeenCalledWith(0, 0, 10);
+  expect(scene.renderer.getActiveCamera().setFocalPoint).toHaveBeenCalledWith(0, 0, 0);
+  expect(scene.renderer.getActiveCamera().setViewUp).toHaveBeenCalledWith(0, 1, 0);
+  expect(scene.renderer.getActiveCamera().setParallelScale).toHaveBeenCalledWith(30);
+  expect(scene.renderer.getActiveCamera().setClippingRange).toHaveBeenCalledWith(0.1, 100);
+  expect(scene.renderWindow.render).toHaveBeenCalledTimes(renderCalls + 1);
+  expect(screen.getByText('Keyboard shortcuts').parentElement).toHaveTextContent('R Reset view');
+});
+
+test('keyboard shortcuts do not activate from text fields or modified key combinations', async () => {
+  await renderReady();
+  const textField = document.createElement('textarea');
+  document.body.appendChild(textField);
+
+  fireEvent.keyDown(textField, { key: 'm' });
+  fireEvent.keyDown(textField, { key: 'r' });
+  textField.remove();
+  expect(screen.getByRole('button', { name: 'Navigate' })).toHaveAttribute('aria-pressed', 'true');
+  expect(scene.renderer.getActiveCamera().setPosition).not.toHaveBeenCalled();
+
+  fireEvent.keyDown(window, { key: 'm', ctrlKey: true });
+  fireEvent.keyDown(window, { key: 'c', altKey: true });
+  fireEvent.keyDown(window, { key: 'n', shiftKey: true });
+  expect(screen.getByRole('button', { name: 'Navigate' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('R does not reset the view while the volume is loading', () => {
+  sessionFetch.mockReturnValue(new Promise(() => {}));
+  render(<VTKViewer modelUrl="/scan-a" />);
+
+  fireEvent.keyDown(window, { key: 'r' });
+
+  expect(scene.renderer.resetCamera).not.toHaveBeenCalled();
+  expect(scene.renderer.getActiveCamera().setPosition).not.toHaveBeenCalled();
+});
 
 function prepareMarkerSurface(view) {
   const vtkContainer = view.container.querySelector('canvas').parentElement.firstElementChild;
