@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import VTKViewer from "../components/VTKViewer";
 import { sessionFetch } from "../sessionApi";
+import { fetchHistory, saveHistory } from "../historyApi";
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
+const HISTORY_SAVE_DEBOUNCE_MS = 300;
 
 /**
  * Viewer page (route: /viewer/:uploadId)
@@ -19,16 +21,115 @@ function Viewer() {
     const navigate = useNavigate();
     const [modelUrl, setModelUrl] = useState("");
     const [labelStatus, setLabelStatus] = useState("");
+    const [historyStatus, setHistoryStatus] = useState("");
     const [markers, setMarkers] = useState([]);
     const [isUploadingMarkers, setIsUploadingMarkers] = useState(false);
+    const [restoredHistory, setRestoredHistory] = useState(null);
+    const [historyRestoreKey, setHistoryRestoreKey] = useState(0);
+    const [historySaveFailed, setHistorySaveFailed] = useState(false);
     const markersRef = useRef([]);
+    const uploadedIdsRef = useRef(new Set());
     const isUploadingMarkersRef = useRef(false);
+    const revisionRef = useRef(0);
+    const pendingSnapshotRef = useRef(null);
+    const saveTimerRef = useRef(null);
+    const saveGenerationRef = useRef(0);
+    const autoRetriedRef = useRef(false);
 
-    const addMarker = useCallback((marker) => {
-        const updatedMarkers = [...markersRef.current, marker];
+    const addMarkerStroke = useCallback(({ markers: strokeMarkers }) => {
+        const toAdd = strokeMarkers.filter(
+            (marker) => !uploadedIdsRef.current.has(marker.id)
+        );
+        if (toAdd.length === 0) return;
+
+        const updatedMarkers = [...markersRef.current, ...toAdd];
         markersRef.current = updatedMarkers;
         setMarkers(updatedMarkers);
     }, []);
+
+    const removeMarkerStroke = useCallback((strokeId) => {
+        const updatedMarkers = markersRef.current.filter(
+            (marker) => marker.strokeId !== strokeId
+        );
+        markersRef.current = updatedMarkers;
+        setMarkers(updatedMarkers);
+    }, []);
+
+    const persistHistory = useCallback(async (snapshot, { isRetry = false } = {}) => {
+        const generation = saveGenerationRef.current;
+        if (!uploadId || !snapshot) return;
+
+        try {
+            const saved = await saveHistory(uploadId, {
+                revision: revisionRef.current,
+                cursor: snapshot.cursor,
+                actions: snapshot.actions,
+            });
+            if (generation !== saveGenerationRef.current) return;
+            if (!saved || !Number.isInteger(saved.revision)) {
+                throw new Error("History save returned an invalid response.");
+            }
+            revisionRef.current = saved.revision;
+            setHistorySaveFailed(false);
+            autoRetriedRef.current = false;
+            setHistoryStatus("");
+        } catch (error) {
+            if (generation !== saveGenerationRef.current) return;
+
+            if (error.code === "REVISION_CONFLICT" && error.body) {
+                revisionRef.current = error.body.revision ?? 0;
+                markersRef.current = [];
+                setMarkers([]);
+                setRestoredHistory({
+                    cursor: error.body.cursor ?? 0,
+                    actions: Array.isArray(error.body.actions) ? error.body.actions : [],
+                });
+                setHistoryRestoreKey((key) => key + 1);
+                setHistorySaveFailed(false);
+                setHistoryStatus("History conflict — reloaded from server.");
+                return;
+            }
+
+            if (!isRetry && !autoRetriedRef.current) {
+                autoRetriedRef.current = true;
+                await persistHistory(snapshot, { isRetry: true });
+                return;
+            }
+
+            setHistorySaveFailed(true);
+            setHistoryStatus("History save failed.");
+        }
+    }, [uploadId]);
+
+    const scheduleHistorySave = useCallback((snapshot) => {
+        pendingSnapshotRef.current = snapshot;
+        if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+        }
+        saveTimerRef.current = setTimeout(() => {
+            saveTimerRef.current = null;
+            const pending = pendingSnapshotRef.current;
+            pendingSnapshotRef.current = null;
+            persistHistory(pending);
+        }, HISTORY_SAVE_DEBOUNCE_MS);
+    }, [persistHistory]);
+
+    const lastSnapshotRef = useRef(null);
+
+    const handleHistoryChange = useCallback((snapshot) => {
+        lastSnapshotRef.current = snapshot;
+        autoRetriedRef.current = false;
+        scheduleHistorySave(snapshot);
+    }, [scheduleHistorySave]);
+
+    const retryLastHistorySave = useCallback(() => {
+        if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = null;
+        }
+        if (!lastSnapshotRef.current) return;
+        persistHistory(lastSnapshotRef.current, { isRetry: true });
+    }, [persistHistory]);
 
     const uploadMarkers = async () => {
         if (isUploadingMarkersRef.current || markersRef.current.length === 0) return;
@@ -60,6 +161,7 @@ function Viewer() {
                 }
 
                 uploadedCount += 1;
+                uploadedIdsRef.current.add(marker.id);
                 const remainingMarkers = markersRef.current.filter(({ id }) => id !== marker.id);
                 markersRef.current = remainingMarkers;
                 setMarkers(remainingMarkers);
@@ -78,11 +180,50 @@ function Viewer() {
     };
 
     useEffect(() => {
+        saveGenerationRef.current += 1;
+        const generation = saveGenerationRef.current;
+        if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = null;
+        }
+        pendingSnapshotRef.current = null;
+        lastSnapshotRef.current = null;
         markersRef.current = [];
+        uploadedIdsRef.current = new Set();
         setMarkers([]);
         setLabelStatus("");
-        // Construct the VTI model URL served by the Flask backend
+        setHistoryStatus("");
+        setHistorySaveFailed(false);
+        autoRetriedRef.current = false;
+        revisionRef.current = 0;
+        setRestoredHistory({ cursor: 0, actions: [] });
+        setHistoryRestoreKey((key) => key + 1);
         setModelUrl(`${API_BASE}/api/render_dicom/${encodeURIComponent(uploadId)}`);
+
+        let cancelled = false;
+        void (async () => {
+            try {
+                const history = await fetchHistory(uploadId);
+                if (cancelled || generation !== saveGenerationRef.current) return;
+                revisionRef.current = history.revision;
+                setRestoredHistory({
+                    cursor: history.cursor,
+                    actions: history.actions,
+                });
+                setHistoryRestoreKey((key) => key + 1);
+            } catch (error) {
+                if (cancelled || generation !== saveGenerationRef.current) return;
+                setHistoryStatus(error.message || "Unable to load edit history.");
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+            if (saveTimerRef.current) {
+                clearTimeout(saveTimerRef.current);
+                saveTimerRef.current = null;
+            }
+        };
     }, [uploadId]);
 
     return (
@@ -158,10 +299,40 @@ function Viewer() {
                     {isUploadingMarkers ? "Uploading markers..." : `Upload markers (${markers.length})`}
                 </button>
                 {labelStatus && <span role="status" style={{ color: "#ffffff" }}>{labelStatus}</span>}
+                {historyStatus && (
+                    <span role="status" aria-label="History status" style={{ color: "#ffffff" }}>
+                        {historyStatus}
+                        {historySaveFailed && (
+                            <button
+                                type="button"
+                                onClick={retryLastHistorySave}
+                                style={{
+                                    marginLeft: "0.5rem",
+                                    background: "#0f3460",
+                                    border: "1px solid #90cdf4",
+                                    color: "#ffffff",
+                                    cursor: "pointer",
+                                    padding: "0.15rem 0.45rem",
+                                }}
+                            >
+                                Retry
+                            </button>
+                        )}
+                    </span>
+                )}
             </header>
 
             <main style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                {modelUrl && <VTKViewer modelUrl={modelUrl} onMarkerAdded={addMarker} />}
+                {modelUrl && (
+                    <VTKViewer
+                        modelUrl={modelUrl}
+                        onMarkerStrokeAdded={addMarkerStroke}
+                        onMarkerStrokeRemoved={removeMarkerStroke}
+                        restoredHistory={restoredHistory}
+                        historyRestoreKey={historyRestoreKey}
+                        onHistoryChange={handleHistoryChange}
+                    />
+                )}
             </main>
         </div>
     );
