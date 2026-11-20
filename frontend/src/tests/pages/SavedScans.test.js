@@ -6,22 +6,79 @@ import { Route, Routes, useLocation } from 'react-router-dom';
 import Dashboard from '../../pages/Dashboard';
 import Viewer from '../../pages/Viewer';
 import { clearAuthStorage, renderWithRouter, seedAuthStorage } from '../test-utils';
+import { fetchHistory, saveHistory } from '../../historyApi';
+
+jest.mock('../../historyApi', () => ({
+  fetchHistory: jest.fn(async () => ({ revision: 0, cursor: 0, actions: [] })),
+  saveHistory: jest.fn(async (_scanId, { revision, cursor, actions }) => ({
+    revision: revision + 1,
+    cursor,
+    actions,
+  })),
+  toPersistedActions: jest.requireActual('../../historyApi').toPersistedActions,
+}));
 
 jest.mock('../../components/VTKViewer', () => ({
   __esModule: true,
-  default: function VTKViewerStub({ modelUrl, onMarkerAdded }) {
+  default: function VTKViewerStub({
+    modelUrl,
+    onMarkerStrokeAdded,
+    onMarkerStrokeRemoved,
+    onHistoryChange,
+  }) {
     return (
       <>
         <div data-testid="vtk-model-url">{modelUrl}</div>
         <button
           type="button"
-          onClick={() => onMarkerAdded({
-            id: 'marker-1',
-            coordinates: { x: 1, y: 2, z: 3 },
-            color: '#ff0000',
-          })}
+          onClick={() => {
+            onMarkerStrokeAdded({
+              strokeId: 'stroke-1',
+              markers: [{
+                id: 'marker-1',
+                strokeId: 'stroke-1',
+                coordinates: { x: 1, y: 2, z: 3 },
+                color: '#ff0000',
+              }],
+            });
+            onHistoryChange?.({
+              cursor: 1,
+              actions: [{
+                type: 'markerStroke',
+                strokeId: 'stroke-1',
+                color: '#ff0000',
+                points: [[1, 2, 3]],
+                markers: [{
+                  id: 'marker-1',
+                  strokeId: 'stroke-1',
+                  coordinates: { x: 1, y: 2, z: 3 },
+                  color: '#ff0000',
+                }],
+              }],
+            });
+          }}
         >
           Add test marker
+        </button>
+        <button
+          type="button"
+          onClick={() => onMarkerStrokeRemoved('stroke-1')}
+        >
+          Undo test marker stroke
+        </button>
+        <button
+          type="button"
+          onClick={() => onMarkerStrokeAdded({
+            strokeId: 'stroke-1',
+            markers: [{
+              id: 'marker-1',
+              strokeId: 'stroke-1',
+              coordinates: { x: 1, y: 2, z: 3 },
+              color: '#ff0000',
+            }],
+          })}
+        >
+          Redo test marker stroke
         </button>
       </>
     );
@@ -47,9 +104,29 @@ function DashboardAndViewerRoutes() {
   );
 }
 
+function renderViewer(route = '/viewer/scan-42') {
+  return renderWithRouter(
+    <Routes>
+      <Route path="/viewer/:uploadId" element={<Viewer />} />
+    </Routes>,
+    { route }
+  );
+}
+
+beforeEach(() => {
+  fetchHistory.mockReset();
+  saveHistory.mockReset();
+  fetchHistory.mockResolvedValue({ revision: 0, cursor: 0, actions: [] });
+  saveHistory.mockImplementation(async (_scanId, { revision, cursor, actions }) => ({
+    revision: revision + 1,
+    cursor,
+    actions,
+  }));
+});
+
 afterEach(() => {
   clearAuthStorage();
-  jest.restoreAllMocks();
+  jest.useRealTimers();
 });
 
 test('opens a saved scan in the full-page viewer and renders it automatically', async () => {
@@ -124,16 +201,11 @@ test('uploads drawn marker coordinates through the label endpoint', async () => 
     json: async () => ({ label_id: 1 }),
   });
 
-  renderWithRouter(
-    <Routes>
-      <Route path="/viewer/:uploadId" element={<Viewer />} />
-    </Routes>,
-    { route: '/viewer/scan-42' }
-  );
+  renderViewer();
   await user.click(screen.getByRole('button', { name: 'Add test marker' }));
   await user.click(screen.getByRole('button', { name: 'Upload markers (1)' }));
 
-  expect(await screen.findByRole('status')).toHaveTextContent('Uploaded 1 marker(s).');
+  expect(await screen.findByText('Uploaded 1 marker(s).')).toBeInTheDocument();
   expect(global.fetch).toHaveBeenCalledWith(
     `${API_BASE}/api/scans/scan-42/labels`,
     expect.objectContaining({
@@ -141,8 +213,8 @@ test('uploads drawn marker coordinates through the label endpoint', async () => 
       body: expect.any(String),
     })
   );
-  const request = global.fetch.mock.calls[0][1];
-  expect(JSON.parse(request.body)).toEqual(expect.objectContaining({
+  const labelCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/labels'));
+  expect(JSON.parse(labelCall[1].body)).toEqual(expect.objectContaining({
     name: 'Marker',
     description: 'Drawn marker (#ff0000)',
     coordinates: { x: 1, y: 2, z: 3 },
@@ -150,4 +222,88 @@ test('uploads drawn marker coordinates through the label endpoint', async () => 
     scan_3d_id: 'scan-42',
   }));
   expect(screen.getByRole('button', { name: 'Upload markers (0)' })).toBeDisabled();
+});
+
+test('marker stroke undo clears the upload queue and uploaded ids are not re-queued', async () => {
+  const user = userEvent.setup();
+  seedAuthStorage({ userId: '9', userName: 'surgeon' });
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ label_id: 1 }),
+  });
+
+  renderViewer();
+
+  await user.click(screen.getByRole('button', { name: 'Add test marker' }));
+  expect(screen.getByRole('button', { name: 'Upload markers (1)' })).toBeEnabled();
+
+  await user.click(screen.getByRole('button', { name: 'Undo test marker stroke' }));
+  expect(screen.getByRole('button', { name: 'Upload markers (0)' })).toBeDisabled();
+
+  await user.click(screen.getByRole('button', { name: 'Add test marker' }));
+  await user.click(screen.getByRole('button', { name: 'Upload markers (1)' }));
+  expect(await screen.findByText('Uploaded 1 marker(s).')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Upload markers (0)' })).toBeDisabled();
+
+  await user.click(screen.getByRole('button', { name: 'Undo test marker stroke' }));
+  await user.click(screen.getByRole('button', { name: 'Redo test marker stroke' }));
+  expect(screen.getByRole('button', { name: 'Upload markers (0)' })).toBeDisabled();
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+});
+
+test('loads history on open and saves after local edits', async () => {
+  const user = userEvent.setup();
+  seedAuthStorage({ userId: '9', userName: 'surgeon' });
+  fetchHistory.mockResolvedValue({
+    revision: 2,
+    cursor: 0,
+    actions: [],
+  });
+
+  renderViewer();
+
+  await waitFor(() => expect(fetchHistory).toHaveBeenCalledWith('scan-42'));
+  await user.click(screen.getByRole('button', { name: 'Add test marker' }));
+
+  await waitFor(() => expect(saveHistory).toHaveBeenCalledWith('scan-42', {
+    revision: 2,
+    cursor: 1,
+    actions: expect.arrayContaining([
+      expect.objectContaining({ type: 'markerStroke', strokeId: 'stroke-1' }),
+    ]),
+  }));
+});
+
+test('shows retry after history save failure and reloads on revision conflict', async () => {
+  const user = userEvent.setup();
+  seedAuthStorage({ userId: '9', userName: 'surgeon' });
+  fetchHistory.mockResolvedValue({ revision: 0, cursor: 0, actions: [] });
+
+  const conflict = Object.assign(new Error('History revision conflict'), {
+    status: 409,
+    code: 'REVISION_CONFLICT',
+    body: {
+      revision: 5,
+      cursor: 0,
+      actions: [],
+    },
+  });
+  saveHistory
+    .mockReset()
+    .mockRejectedValueOnce(Object.assign(new Error('network'), { status: 500 }))
+    .mockRejectedValueOnce(Object.assign(new Error('network'), { status: 500 }))
+    .mockRejectedValueOnce(conflict);
+
+  renderViewer();
+
+  await waitFor(() => expect(fetchHistory).toHaveBeenCalled());
+  await user.click(screen.getByRole('button', { name: 'Add test marker' }));
+
+  expect(await screen.findByLabelText('History status')).toHaveTextContent('History save failed.');
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+
+  await user.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByLabelText('History status')).toHaveTextContent(
+    'History conflict — reloaded from server.'
+  );
 });

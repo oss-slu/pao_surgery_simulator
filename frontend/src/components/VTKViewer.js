@@ -1,5 +1,15 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { sessionFetch } from '../sessionApi';
+import {
+  canRedo as historyCanRedo,
+  canUndo as historyCanUndo,
+  clearEdits,
+  createEditHistory,
+  pushEdit,
+  redoEdit,
+  undoEdit,
+} from '../editHistory';
+import { toPersistedActions } from '../historyApi';
 import '@kitware/vtk.js/Rendering/Profiles/Volume';
 import vtkGenericRenderWindow from '@kitware/vtk.js/Rendering/Misc/GenericRenderWindow';
 import vtkVolume from '@kitware/vtk.js/Rendering/Core/Volume';
@@ -213,6 +223,7 @@ function applyStraightCut(imageData, {
   return {
     indices: Uint32Array.from(indices),
     previousValues: values.constructor.from(previousValues),
+    emptyValue,
   };
 }
 
@@ -372,18 +383,16 @@ function CutOverlay({ vtk, thickness, onCut, status, onStatusChange, onDragChang
 
     try {
       const imageData = vtk.mapper.getInputData();
-      const cut = applyStraightCut(
-        imageData,
-        {
-          start: drag.start.world,
-          end: end.world,
-          depthDirection: drag.depthDirection,
-          thickness: drag.thickness,
-        }
-      );
+      const geometry = {
+        start: Array.from(drag.start.world),
+        end: Array.from(end.world),
+        depthDirection: Array.from(drag.depthDirection),
+        thickness: drag.thickness,
+      };
+      const cut = applyStraightCut(imageData, geometry);
 
       if (cut.indices.length > 0) {
-        onCut({ imageData, ...cut });
+        onCut({ imageData, ...cut, ...geometry });
       }
       vtk.renderWindow.render();
 
@@ -470,16 +479,29 @@ function CutOverlay({ vtk, thickness, onCut, status, onStatusChange, onDragChang
   );
 }
 
-function VTKViewer({ modelUrl, label, onMarkerAdded }) {
+function VTKViewer({
+  modelUrl,
+  label,
+  onMarkerStrokeAdded,
+  onMarkerStrokeRemoved,
+  restoredHistory = null,
+  historyRestoreKey = 0,
+  onHistoryChange,
+}) {
   const vtkContainerRef = useRef(null);
   const drawingCanvasRef = useRef(null);
   const context = useRef(null);
-  const onMarkerAddedRef = useRef(onMarkerAdded);
+  const onMarkerStrokeAddedRef = useRef(onMarkerStrokeAdded);
+  const onMarkerStrokeRemovedRef = useRef(onMarkerStrokeRemoved);
+  const onHistoryChangeRef = useRef(onHistoryChange);
   const drawingRef = useRef(false);
   const previousPositionRef = useRef(null);
   const activeStrokeRef = useRef(null);
   const strokesRef = useRef([]);
-  const cutHistoryRef = useRef([]);
+  const drawStrokesRef = useRef(null);
+  const editHistoryRef = useRef(createEditHistory());
+  const replayingHistoryRef = useRef(false);
+  const lastRestoreKeyRef = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [emphasizeDenseTissue, setEmphasizeDenseTissue] = useState(false);
@@ -487,44 +509,184 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
   const [markerColor, setMarkerColor] = useState('#ff0000');
   const [cutThickness, setCutThickness] = useState(3);
   const [isVolumeReady, setIsVolumeReady] = useState(false);
-  const [undoCount, setUndoCount] = useState(0);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const [cutStatus, setCutStatus] = useState('');
   const [isCutDragging, setIsCutDragging] = useState(false);
+  const [isMarkerDrawing, setIsMarkerDrawing] = useState(false);
 
-  onMarkerAddedRef.current = onMarkerAdded;
+  onMarkerStrokeAddedRef.current = onMarkerStrokeAdded;
+  onMarkerStrokeRemovedRef.current = onMarkerStrokeRemoved;
+  onHistoryChangeRef.current = onHistoryChange;
 
   const toolsDisabled = !modelUrl || !isVolumeReady || isLoading || Boolean(error);
+  const historyToolActive = activeTool === 'cut' || activeTool === 'marker';
+  const historyBusy = isCutDragging || isMarkerDrawing;
+
+  const syncHistoryButtons = useCallback(() => {
+    const history = editHistoryRef.current;
+    setCanUndo(historyCanUndo(history));
+    setCanRedo(historyCanRedo(history));
+  }, []);
+
+  const emitHistoryChange = useCallback(() => {
+    if (replayingHistoryRef.current) return;
+    const history = editHistoryRef.current;
+    onHistoryChangeRef.current?.({
+      cursor: history.cursor,
+      actions: toPersistedActions(history.entries),
+    });
+  }, []);
 
   const recordCut = useCallback((cut) => {
     if (cut.imageData !== context.current?.mapper.getInputData()) return;
 
-    cutHistoryRef.current.push(cut);
-    setUndoCount(cutHistoryRef.current.length);
-  }, []);
+    pushEdit(editHistoryRef.current, { type: 'cut', ...cut });
+    syncHistoryButtons();
+    emitHistoryChange();
+  }, [syncHistoryButtons, emitHistoryChange]);
 
-  const handleUndo = () => {
-    if (toolsDisabled || activeTool !== 'cut' || isCutDragging || !context.current) {
-      return;
-    }
-
+  const applyCutEntry = useCallback((cut, mode) => {
     const { mapper, renderWindow } = context.current;
     const imageData = mapper.getInputData();
-    const cut = cutHistoryRef.current[cutHistoryRef.current.length - 1];
-    if (!cut || cut.imageData !== imageData) return;
+
+    if (
+      mode === 'redo' &&
+      (!cut.indices || cut.indices.length === 0) &&
+      cut.start &&
+      cut.end &&
+      cut.depthDirection
+    ) {
+      const applied = applyStraightCut(imageData, {
+        start: cut.start,
+        end: cut.end,
+        depthDirection: cut.depthDirection,
+        thickness: cut.thickness,
+        emptyValue: cut.emptyValue,
+      });
+      cut.imageData = imageData;
+      cut.indices = applied.indices;
+      cut.previousValues = applied.previousValues;
+      cut.emptyValue = applied.emptyValue;
+      renderWindow.render();
+      return true;
+    }
+
+    if (cut.imageData && cut.imageData !== imageData) return false;
+    if (!cut.indices || !cut.previousValues) return false;
 
     const scalars = imageData.getPointData().getScalars();
     const values = scalars.getData();
     for (let i = 0; i < cut.indices.length; i++) {
-      values[cut.indices[i]] = cut.previousValues[i];
+      values[cut.indices[i]] =
+        mode === 'undo' ? cut.previousValues[i] : cut.emptyValue;
     }
 
     scalars.dataChange();
     imageData.modified();
-    cutHistoryRef.current.pop();
-    setUndoCount(cutHistoryRef.current.length);
-    setCutStatus('Last cut undone.');
     renderWindow.render();
-  };
+    return true;
+  }, []);
+
+  const applyMarkerStrokeEntry = useCallback((entry, mode) => {
+    if (mode === 'undo') {
+      strokesRef.current = strokesRef.current.filter(
+        (stroke) => stroke.strokeId !== entry.strokeId
+      );
+      drawStrokesRef.current?.();
+      onMarkerStrokeRemovedRef.current?.(entry.strokeId);
+      return;
+    }
+
+    strokesRef.current = [
+      ...strokesRef.current.filter((stroke) => stroke.strokeId !== entry.strokeId),
+      {
+        strokeId: entry.strokeId,
+        color: entry.color,
+        points: entry.points.slice(),
+        markers: entry.markers.slice(),
+      },
+    ];
+    drawStrokesRef.current?.();
+    onMarkerStrokeAddedRef.current?.({
+      strokeId: entry.strokeId,
+      markers: entry.markers.slice(),
+    });
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    if (toolsDisabled || !historyToolActive || historyBusy || !context.current) {
+      return;
+    }
+
+    const history = editHistoryRef.current;
+    if (!historyCanUndo(history)) return;
+
+    const entry = history.entries[history.cursor - 1];
+    if (!entry) return;
+
+    if (entry.type === 'cut') {
+      if (!applyCutEntry(entry, 'undo')) return;
+      undoEdit(history);
+      syncHistoryButtons();
+      setCutStatus('Last cut undone.');
+      emitHistoryChange();
+      return;
+    }
+
+    if (entry.type === 'markerStroke') {
+      undoEdit(history);
+      applyMarkerStrokeEntry(entry, 'undo');
+      syncHistoryButtons();
+      setCutStatus('Last marker stroke undone.');
+      emitHistoryChange();
+    }
+  }, [
+    toolsDisabled,
+    historyToolActive,
+    historyBusy,
+    applyCutEntry,
+    applyMarkerStrokeEntry,
+    syncHistoryButtons,
+    emitHistoryChange,
+  ]);
+
+  const handleRedo = useCallback(() => {
+    if (toolsDisabled || !historyToolActive || historyBusy || !context.current) {
+      return;
+    }
+
+    const history = editHistoryRef.current;
+    if (!historyCanRedo(history)) return;
+
+    const entry = history.entries[history.cursor];
+    if (!entry) return;
+
+    if (entry.type === 'cut') {
+      if (!applyCutEntry(entry, 'redo')) return;
+      redoEdit(history);
+      syncHistoryButtons();
+      setCutStatus('Last cut redone.');
+      emitHistoryChange();
+      return;
+    }
+
+    if (entry.type === 'markerStroke') {
+      redoEdit(history);
+      applyMarkerStrokeEntry(entry, 'redo');
+      syncHistoryButtons();
+      setCutStatus('Last marker stroke redone.');
+      emitHistoryChange();
+    }
+  }, [
+    toolsDisabled,
+    historyToolActive,
+    historyBusy,
+    applyCutEntry,
+    applyMarkerStrokeEntry,
+    syncHistoryButtons,
+    emitHistoryChange,
+  ]);
 
   useEffect(() => {
     const genericRenderWindow = vtkGenericRenderWindow.newInstance({
@@ -586,6 +748,31 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
       }
     };
   }, [activeTool]);
+
+  useEffect(() => {
+    if (!historyToolActive) {
+      return undefined;
+    }
+
+    const onKeyDown = (event) => {
+      if (historyBusy || toolsDisabled) return;
+      if (!(event.ctrlKey || event.metaKey)) return;
+
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        handleUndo();
+        return;
+      }
+      if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        event.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [historyToolActive, historyBusy, toolsDisabled, handleUndo, handleRedo]);
 
   useEffect(() => {
     const container = vtkContainerRef.current;
@@ -656,6 +843,7 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
 
     const cameraSubscription = current.renderer.getActiveCamera().onModified(drawStrokes);
     const resizeSubscription = current.genericRenderWindow.onResize(drawStrokes);
+    drawStrokesRef.current = drawStrokes;
 
     const stopVtkMouseEvent = (event) => {
       if (activeTool !== 'marker') return;
@@ -683,23 +871,55 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
 
       previousPositionRef.current = position;
       if (!activeStrokeRef.current) {
-        activeStrokeRef.current = { color: markerColor, points: [] };
+        const strokeId = `${Date.now()}-${Math.random()}`;
+        activeStrokeRef.current = {
+          strokeId,
+          color: markerColor,
+          points: [],
+          markers: [],
+        };
         strokesRef.current.push(activeStrokeRef.current);
       }
-      activeStrokeRef.current.points.push(position);
-      drawStrokes();
-
-      onMarkerAddedRef.current?.({
-        id: `${Date.now()}-${Math.random()}`,
+      const stroke = activeStrokeRef.current;
+      stroke.points.push(position);
+      stroke.markers.push({
+        id: `${stroke.strokeId}-${stroke.points.length - 1}`,
+        strokeId: stroke.strokeId,
         coordinates: { x: position[0], y: position[1], z: position[2] },
         color: markerColor,
       });
+      drawStrokes();
+    };
+
+    const finishMarkerStroke = () => {
+      drawingRef.current = false;
+      setIsMarkerDrawing(false);
+      previousPositionRef.current = null;
+      const stroke = activeStrokeRef.current;
+      activeStrokeRef.current = null;
+      if (!stroke?.points.length) return;
+
+      const entry = {
+        type: 'markerStroke',
+        strokeId: stroke.strokeId,
+        color: stroke.color,
+        points: stroke.points.slice(),
+        markers: stroke.markers.slice(),
+      };
+      pushEdit(editHistoryRef.current, entry);
+      syncHistoryButtons();
+      onMarkerStrokeAddedRef.current?.({
+        strokeId: stroke.strokeId,
+        markers: stroke.markers.slice(),
+      });
+      emitHistoryChange();
     };
 
     const handlePointerDown = (event) => {
       if (activeTool !== 'marker' || event.button !== 0) return;
       stopVtkMouseEvent(event);
       drawingRef.current = true;
+      setIsMarkerDrawing(true);
       previousPositionRef.current = null;
       activeStrokeRef.current = null;
       addMarkerAt(event);
@@ -714,9 +934,7 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
     const handlePointerUp = (event) => {
       if (activeTool !== 'marker' || !drawingRef.current) return;
       stopVtkMouseEvent(event);
-      drawingRef.current = false;
-      previousPositionRef.current = null;
-      activeStrokeRef.current = null;
+      finishMarkerStroke();
     };
 
     container.addEventListener('pointerdown', handlePointerDown, true);
@@ -736,11 +954,19 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
       container.removeEventListener('mouseup', stopVtkMouseEvent, true);
       cameraSubscription.unsubscribe();
       resizeSubscription.unsubscribe();
-      drawingRef.current = false;
-      previousPositionRef.current = null;
-      activeStrokeRef.current = null;
+      if (drawStrokesRef.current === drawStrokes) {
+        drawStrokesRef.current = null;
+      }
+      if (drawingRef.current) {
+        finishMarkerStroke();
+      } else {
+        drawingRef.current = false;
+        setIsMarkerDrawing(false);
+        previousPositionRef.current = null;
+        activeStrokeRef.current = null;
+      }
     };
-  }, [activeTool, markerColor]);
+  }, [activeTool, markerColor, syncHistoryButtons, emitHistoryChange]);
 
   useEffect(() => {
     if (!context.current) return;
@@ -766,10 +992,13 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
     setError('');
     setIsVolumeReady(false);
     setActiveTool('navigate');
-    cutHistoryRef.current = [];
-    setUndoCount(0);
+    clearEdits(editHistoryRef.current);
+    setCanUndo(false);
+    setCanRedo(false);
     setCutStatus('');
     setIsCutDragging(false);
+    setIsMarkerDrawing(false);
+    lastRestoreKeyRef.current = null;
 
     const loadVolume = async () => {
       try {
@@ -809,6 +1038,89 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
     loadVolume();
     return () => controller.abort();
   }, [modelUrl]);
+
+  useEffect(() => {
+    if (!isVolumeReady || !context.current?.imageData) return;
+    if (lastRestoreKeyRef.current === historyRestoreKey) return;
+
+    lastRestoreKeyRef.current = historyRestoreKey;
+    const imageData = context.current.imageData;
+    const actions = restoredHistory?.actions || [];
+    const cursor = Math.min(
+      Math.max(restoredHistory?.cursor ?? 0, 0),
+      actions.length
+    );
+
+    replayingHistoryRef.current = true;
+    clearEdits(editHistoryRef.current);
+    strokesRef.current = [];
+
+    try {
+      for (let index = 0; index < actions.length; index += 1) {
+        const action = actions[index];
+        if (action.type === 'cut') {
+          if (index < cursor) {
+            const applied = applyStraightCut(imageData, {
+              start: action.start,
+              end: action.end,
+              depthDirection: action.depthDirection,
+              thickness: action.thickness,
+              emptyValue: action.emptyValue,
+            });
+            pushEdit(editHistoryRef.current, {
+              type: 'cut',
+              imageData,
+              ...applied,
+              start: action.start,
+              end: action.end,
+              depthDirection: action.depthDirection,
+              thickness: action.thickness,
+            });
+          } else {
+            pushEdit(editHistoryRef.current, {
+              type: 'cut',
+              start: action.start,
+              end: action.end,
+              depthDirection: action.depthDirection,
+              thickness: action.thickness,
+              emptyValue: action.emptyValue ?? -1000,
+              indices: null,
+              previousValues: null,
+              imageData: null,
+            });
+          }
+        } else if (action.type === 'markerStroke') {
+          const entry = {
+            type: 'markerStroke',
+            strokeId: action.strokeId,
+            color: action.color,
+            points: (action.points || []).map((point) => Array.from(point)),
+            markers: (action.markers || []).map((marker) => ({ ...marker })),
+          };
+          pushEdit(editHistoryRef.current, entry);
+          if (index < cursor) {
+            strokesRef.current.push({
+              strokeId: entry.strokeId,
+              color: entry.color,
+              points: entry.points.slice(),
+              markers: entry.markers.slice(),
+            });
+            onMarkerStrokeAddedRef.current?.({
+              strokeId: entry.strokeId,
+              markers: entry.markers.slice(),
+            });
+          }
+        }
+      }
+
+      editHistoryRef.current.cursor = cursor;
+      syncHistoryButtons();
+      drawStrokesRef.current?.();
+      context.current.renderWindow.render();
+    } finally {
+      replayingHistoryRef.current = false;
+    }
+  }, [isVolumeReady, restoredHistory, historyRestoreKey, syncHistoryButtons]);
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 0, position: 'relative' }}>
@@ -881,6 +1193,7 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
               aria-label="Marker color"
               type="color"
               value={markerColor}
+              disabled={toolsDisabled || isMarkerDrawing}
               onChange={(event) => setMarkerColor(event.target.value)}
             />
           </label>
@@ -946,41 +1259,70 @@ function VTKViewer({ modelUrl, label, onMarkerAdded }) {
         </div>
 
         {activeTool === 'cut' && (
+          <label
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.4rem',
+              marginTop: '0.85rem',
+            }}
+          >
+            <span>Thickness: {cutThickness} mm</span>
+
+            <input
+              type="range"
+              min="1"
+              max="30"
+              step="0.5"
+              value={cutThickness}
+              disabled={toolsDisabled || isCutDragging}
+              onChange={(event) =>
+                setCutThickness(Number(event.target.value))
+              }
+            />
+          </label>
+        )}
+
+        {historyToolActive && (
           <>
-            <label
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.4rem',
-                marginTop: '0.85rem',
-              }}
-            >
-              <span>Thickness: {cutThickness} mm</span>
-
-              <input
-                type="range"
-                min="1"
-                max="30"
-                step="0.5"
-                value={cutThickness}
-                disabled={toolsDisabled || isCutDragging}
-                onChange={(event) =>
-                  setCutThickness(Number(event.target.value))
-                }
-              />
-            </label>
-
             <button
               type="button"
-              disabled={toolsDisabled || undoCount === 0 || isCutDragging}
+              disabled={toolsDisabled || !canUndo || historyBusy}
               onClick={handleUndo}
               style={{ marginTop: '0.75rem' }}
             >
               Undo
             </button>
+
+            <button
+              type="button"
+              disabled={toolsDisabled || !canRedo || historyBusy}
+              onClick={handleRedo}
+              style={{ marginTop: '0.75rem', marginLeft: '0.5rem' }}
+            >
+              Redo
+            </button>
           </>
         )}
       </fieldset>
+
+      {activeTool === 'marker' && cutStatus && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            bottom: '1rem',
+            left: '1rem',
+            zIndex: 6,
+            color: 'white',
+            background: 'rgba(0, 0, 0, 0.8)',
+            padding: '0.5rem',
+            pointerEvents: 'none',
+          }}
+        >
+          {cutStatus}
+        </div>
+      )}
 
       {isLoading && (
         <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>

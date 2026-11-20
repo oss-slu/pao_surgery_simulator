@@ -99,6 +99,9 @@ DICOM_ROUTES = [
     ("GET", "/api/render_dicom/owned/metadata"),
     ("GET", "/api/download_dicom/owned"),
     ("GET", "/api/scans/owned/labels"),
+    ("GET", "/api/scans/owned/history"),
+    ("POST", "/api/scans/owned/history/list"),
+    ("PUT", "/api/scans/owned/history"),
 ]
 
 
@@ -136,6 +139,49 @@ def test_owner_can_read_labels(client, issued, session_db):
         "session_token": issued["session_token"]})
     assert response.status_code == 200
     assert response.get_json() == {"scan_id": "owned", "labels": []}
+
+
+def test_owner_can_put_and_get_history(client, issued, session_db):
+    token = issued["session_token"]
+    empty = client.post(
+        "/api/scans/owned/history/list",
+        json={"session_token": token},
+    )
+    assert empty.status_code == 200
+    assert empty.get_json() == {
+        "scan_id": "owned",
+        "revision": 0,
+        "cursor": 0,
+        "actions": [],
+    }
+
+    actions = [
+        {
+            "type": "cut",
+            "start": [0, 0, 0],
+            "end": [5, 0, 0],
+            "depthDirection": [0, 0, -1],
+            "thickness": 2.5,
+        }
+    ]
+    put = client.put(
+        "/api/scans/owned/history",
+        json={"session_token": token, "revision": 0, "cursor": 1, "actions": actions},
+    )
+    assert put.status_code == 200
+    put_body = put.get_json()
+    assert put_body["revision"] == 1
+    assert put_body["cursor"] == 1
+    assert put_body["actions"][0]["type"] == "cut"
+    assert put_body["actions"][0]["emptyValue"] == -1000
+
+    get = client.get(
+        "/api/scans/owned/history",
+        json={"session_token": token},
+    )
+    assert get.status_code == 200
+    assert get.get_json()["revision"] == 1
+    assert get.get_json()["actions"][0]["thickness"] == 2.5
 
 
 def test_scan_lists_only_include_owned_records(client, issued, session_db):
