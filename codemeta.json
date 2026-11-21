@@ -35,12 +35,19 @@
       "startDate": "2025-08-20",
       "schema:author": "_:author_1",
       "type": "Role"
+    },
+    {
+      "roleName": "Tech Lead",
+      "startDate": "2025-08-20",
+      "schema:author": "_:author_1",
+      "type": "Role"
     }
   ],
   "codeRepository": "https://github.com/oss-slu/pao_surgery_simulator",
   "dateCreated": "2025-08-11",
   "description": "Surgery Simulator is a platform designed to address the hurdles faced in the current orthopedic simulation tools. It is a platform for both clinical and education practice. It enables precise preoperative and detailed post operative analysis to improve surgical outcomes\n",
   "developmentStatus": "active",
+  "downloadUrl": "https://github.com/oss-slu/pao_surgery_simulator/releases/tag/untagged-29a9e2fe84c5f25d2331",
   "issueTracker": "https://github.com/oss-slu/pao_surgery_simulator/issues",
   "keywords": [
     "Surgery Simulation"
@@ -54,5 +61,7 @@
     "Dockerfile",
     "TypeScript"
   ],
+  "schema:releaseNotes": "## What's Changed\r\n* Update README.md by @sriram1302 in https://github.com/oss-slu/pao_surgery_simulator/pull/1\r\n* Installation Guide by @sriram1302 in https://github.com/oss-slu/pao_surgery_simulator/pull/2\r\n* Sprint 1 by @sriram1302 in https://github.com/oss-slu/pao_surgery_simulator/pull/3\r\n* Update .gitignore file by @sriram1302 in https://github.com/oss-slu/pao_surgery_simulator/pull/8\r\n* Updated .gitignore by @sriram1302 in https://github.com/oss-slu/pao_surgery_simulator/pull/9\r\n* Merge pull request #9 from oss-slu/main by @sriram1302 in https://github.com/oss-slu/pao_surgery_simulator/pull/10\r\n* Updated Login Page and File Uploaad button by @sriram1302 in https://github.com/oss-slu/pao_surgery_simulator/pull/17\r\n* Justinduong5 patch 1 Prototpe for VTK Integration by @justinduong5 in https://github.com/oss-slu/pao_surgery_simulator/pull/18\r\n* Setup PostgreSQL Database and Flask API Endpoints by @Zhihuiwu646 in https://github.com/oss-slu/pao_surgery_simulator/pull/20\r\n* README changes by @Zhihuiwu646 in https://github.com/oss-slu/pao_surgery_simulator/pull/21\r\n* Justinduong5 patch 1 Create a Prototype for VTK (Visualization Tool Kit) Integration #12 by @justinduong5 in https://github.com/oss-slu/pao_surgery_simulator/pull/22\r\n* Fixes the 20 problems by @Zhihuiwu646 in https://github.com/oss-slu/pao_surgery_simulator/pull/23\r\n* Issue #22 VTK Viewer Prototype Integration by @justinduong5 in https://github.com/oss-slu/pao_surgery_simulator/pull/24\r\n* Attempted .vti VTKViewer Rework by @justinduong5 in https://github.com/oss-slu/pao_surgery_simulator/pull/26\r\n* Sign up database by @Zhihuiwu646 in https://github.com/oss-slu/pao_surgery_simulator/pull/28\r\n* Complete Iteration by @sriram1302 in https://github.com/oss-slu/pao_surgery_simulator/pull/30\r\n* feat(api): add Patients and Images models with PostgreSQL supportadd setup and run instructions by @tmp-cloud7 in https://github.com/oss-slu/pao_surgery_simulator/pull/15\r\n* Add /api/ping endpoint for health check by @rawana7912 in https://github.com/oss-slu/pao_surgery_simulator/pull/38\r\n* feat: ✨ LICENSE file added by @codefair-io[bot] in https://github.com/oss-slu/pao_surgery_simulator/pull/39\r\n* feat: ✨ Add code metadata files by @codefair-io[bot] in https://github.com/oss-slu/pao_surgery_simulator/pull/40\r\n\r\n## New Contributors\r\n* @sriram1302 made their first contribution in https://github.com/oss-slu/pao_surgery_simulator/pull/1\r\n* @justinduong5 made their first contribution in https://github.com/oss-slu/pao_surgery_simulator/pull/18\r\n* @Zhihuiwu646 made their first contribution in https://github.com/oss-slu/pao_surgery_simulator/pull/20\r\n* @tmp-cloud7 made their first contribution in https://github.com/oss-slu/pao_surgery_simulator/pull/15\r\n* @rawana7912 made their first contribution in https://github.com/oss-slu/pao_surgery_simulator/pull/38\r\n* @codefair-io[bot] made their first contribution in https://github.com/oss-slu/pao_surgery_simulator/pull/39\r\n\r\n**Full Changelog**: https://github.com/oss-slu/pao_surgery_simulator/commits/v1.0.0",
+  "version": "v1.0.0",
   "type": "SoftwareSourceCode"
 }
