@@ -3,6 +3,21 @@ import './ModelLabels.css';
 
 export const MAX_LABEL_LENGTH = 500;
 
+let fallbackLabelIdCounter = 0;
+
+// Label IDs are identifiers, not secrets. Prefer the browser's CSPRNG when it
+// is available; the fallback is only a per-page uniqueness mechanism and is
+// deliberately not used for security-sensitive values.
+function createLabelId() {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === 'function') {
+    return `label-${cryptoApi.randomUUID()}`;
+  }
+
+  fallbackLabelIdCounter += 1;
+  return `label-${Date.now()}-${fallbackLabelIdCounter}`;
+}
+
 // Saved positions are world coordinates. Only their screen projection changes.
 export function projectLabel(label, vtk, rect) {
   const view = vtk.renderWindow.getViews()[0];
@@ -126,7 +141,7 @@ function ModelLabels({ vtk, disabled, busy, labels, pickPosition, onChange, onEd
       return;
     }
     setEditing({
-      id: `label-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`}`,
+      id: createLabelId(),
       text: '',
       position: [...hit.position],
       before: null,
@@ -204,7 +219,6 @@ function ModelLabels({ vtk, disabled, busy, labels, pickPosition, onChange, onEd
                     <div className="model-label-editor-row">
                       <input
                         ref={inputRef}
-                        autoFocus
                         aria-label="Label text"
                         placeholder="Type a label"
                         maxLength={MAX_LABEL_LENGTH}

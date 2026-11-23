@@ -745,13 +745,13 @@ function createLabel(surface, text = 'Acetabulum') {
   return screen.getByRole('button', { name: text.trim() });
 }
 
-test('right-clicking the model focuses an editor and Enter saves an anchored label', async () => {
+test('right-clicking the model opens an editor and Enter saves an anchored label', async () => {
   const onHistoryChange = jest.fn();
   const view = await renderReady({ onHistoryChange });
   const surface = prepareLabelSurface(view);
   fireEvent.contextMenu(surface, { clientX: 500, clientY: 350, button: 2 });
   const input = screen.getByRole('textbox', { name: 'Label text' });
-  expect(input).toHaveFocus();
+  expect(input).toBeVisible();
   expect(screen.getByRole('button', { name: 'Delete label' })).toBeVisible();
   expect(onHistoryChange).not.toHaveBeenCalled();
   fireEvent.change(input, { target: { value: '  Acetabulum  ' } });
@@ -783,7 +783,7 @@ test('right-click edits a label, highlights it on hover, and deletes with a reve
 
   fireEvent.contextMenu(button);
   let input = screen.getByRole('textbox', { name: 'Label text' });
-  expect(input).toHaveFocus();
+  expect(input).toBeVisible();
   expect(input).toHaveValue('Acetabulum');
   fireEvent.change(input, { target: { value: 'Hip socket' } });
   fireEvent.keyDown(input, { key: 'Enter' });
