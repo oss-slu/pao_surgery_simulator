@@ -10,6 +10,19 @@ export function toPersistedActions(entries) {
   if (!Array.isArray(entries)) return [];
 
   return entries.map((entry) => {
+    if (entry?.type === 'label') {
+      const snapshot = (label) => label ? {
+        id: label.id,
+        text: label.text,
+        position: Array.from(label.position),
+      } : null;
+      return {
+        type: 'label',
+        labelId: entry.labelId,
+        before: snapshot(entry.before),
+        after: snapshot(entry.after),
+      };
+    }
     if (entry?.type === 'cut') {
       return {
         type: 'cut',

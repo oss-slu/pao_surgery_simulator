@@ -83,6 +83,22 @@ test('fetchHistory posts to the list endpoint', async () => {
   expect(history.actions).toHaveLength(1);
 });
 
+test('label snapshots serialize creation, editing, and deletion without sharing position arrays', () => {
+  const original = { id: 'label-1', text: 'Pelvis', position: Float32Array.from([1, 2, 3]) };
+  const edited = { ...original, text: 'Ilium' };
+  const entries = [
+    { type: 'label', labelId: original.id, before: null, after: original },
+    { type: 'label', labelId: original.id, before: original, after: edited },
+    { type: 'label', labelId: original.id, before: edited, after: null },
+  ];
+  const saved = toPersistedActions(entries);
+  expect(saved.map(({ before, after }) => [before?.text ?? null, after?.text ?? null]))
+    .toEqual([[null, 'Pelvis'], ['Pelvis', 'Ilium'], ['Ilium', null]]);
+  expect(saved[0].after.position).toEqual([1, 2, 3]);
+  original.position[0] = 99;
+  expect(saved[0].after.position[0]).toBe(1);
+});
+
 test('saveHistory surfaces revision conflicts', async () => {
   sessionFetch.mockResolvedValue({
     ok: false,

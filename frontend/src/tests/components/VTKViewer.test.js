@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import vtkGenericRenderWindow from '@kitware/vtk.js/Rendering/Misc/GenericRenderWindow';
 import vtkVolume from '@kitware/vtk.js/Rendering/Core/Volume';
 import vtkVolumeMapper from '@kitware/vtk.js/Rendering/Core/VolumeMapper';
@@ -43,6 +43,8 @@ let scene;
 beforeEach(() => {
   jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
   const image = createImage();
+  const cameraListeners = new Set();
+  const resizeListeners = new Set();
   let input;
   let cameraEnabled = true;
   const style = {
@@ -64,7 +66,10 @@ beforeEach(() => {
     getParallelProjection: () => true,
     getDirectionOfProjection: () => [0, 0, -1],
     getParallelScale: () => 30,
-    onModified: () => ({ unsubscribe: jest.fn() }),
+    onModified: (callback) => {
+      cameraListeners.add(callback);
+      return { unsubscribe: () => cameraListeners.delete(callback) };
+    },
   };
   const renderer = {
     getActiveCamera: () => camera,
@@ -97,7 +102,10 @@ beforeEach(() => {
     getRenderer: () => renderer,
     getRenderWindow: () => renderWindow,
     resize: jest.fn(),
-    onResize: () => ({ unsubscribe: jest.fn() }),
+    onResize: (callback) => {
+      resizeListeners.add(callback);
+      return { unsubscribe: () => resizeListeners.delete(callback) };
+    },
     delete: jest.fn(),
   };
   const reader = {
@@ -124,7 +132,8 @@ beforeEach(() => {
   });
   sessionFetch.mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) });
 
-  scene = { ...image, renderWindow, reader, renderer, actor, style };
+  scene = { ...image, renderWindow, reader, renderer, actor, style, camera, view,
+    cameraListeners, resizeListeners, genericRenderWindow };
 });
 
 afterEach(() => {
@@ -720,4 +729,236 @@ test('restored redo-tail cut applies on Redo', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
   expect(scene.values).not.toEqual(before);
   expect(scene.values.some((value) => value === -1000)).toBe(true);
+});
+
+function prepareLabelSurface(view) {
+  const surface = prepareMarkerSurface(view);
+  screen.getByTestId('model-label-viewport').getBoundingClientRect = surface.getBoundingClientRect;
+  return surface;
+}
+
+function createLabel(surface, text = 'Acetabulum') {
+  fireEvent.contextMenu(surface, { clientX: 500, clientY: 350, button: 2 });
+  const input = screen.getByRole('textbox', { name: 'Label text' });
+  fireEvent.change(input, { target: { value: text } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  return screen.getByRole('button', { name: text.trim() });
+}
+
+test('right-clicking the model focuses an editor and Enter saves an anchored label', async () => {
+  const onHistoryChange = jest.fn();
+  const view = await renderReady({ onHistoryChange });
+  const surface = prepareLabelSurface(view);
+  fireEvent.contextMenu(surface, { clientX: 500, clientY: 350, button: 2 });
+  const input = screen.getByRole('textbox', { name: 'Label text' });
+  expect(input).toHaveFocus();
+  expect(screen.getByRole('button', { name: 'Delete label' })).toBeVisible();
+  expect(onHistoryChange).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { value: '  Acetabulum  ' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Acetabulum' })).toBeVisible();
+  const snapshot = onHistoryChange.mock.calls[0][0];
+  expect(snapshot.cursor).toBe(1);
+  expect(snapshot.actions[0]).toEqual({
+    type: 'label', labelId: expect.any(String), before: null,
+    after: { id: expect.any(String), text: 'Acetabulum', position: [0, 0, expect.any(Number)] },
+  });
+  expect(snapshot.actions[0].after.position[2]).toBeCloseTo(2);
+  expect(scene.style.getEnabled()).toBe(true);
+});
+
+test('right-click edits a label, highlights it on hover, and deletes with a reversible X', async () => {
+  const onHistoryChange = jest.fn();
+  const view = await renderReady({ onHistoryChange });
+  const button = createLabel(prepareLabelSurface(view));
+  const card = button.parentElement;
+  expect(Number(card.style.opacity)).toBeLessThan(1);
+  fireEvent.mouseEnter(button);
+  expect(card).toHaveStyle({ opacity: 1, transform: 'scale(1)' });
+  expect(button.closest('[data-model-label]')).toHaveClass('is-highlighted');
+  fireEvent.mouseLeave(button);
+  expect(Number(card.style.opacity)).toBeLessThan(1);
+
+  fireEvent.contextMenu(button);
+  let input = screen.getByRole('textbox', { name: 'Label text' });
+  expect(input).toHaveFocus();
+  expect(input).toHaveValue('Acetabulum');
+  fireEvent.change(input, { target: { value: 'Hip socket' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  const edited = screen.getByRole('button', { name: 'Hip socket' });
+  fireEvent.contextMenu(edited);
+  fireEvent.click(screen.getByRole('button', { name: 'Delete label' }));
+  expect(screen.queryByRole('button', { name: 'Hip socket' })).not.toBeInTheDocument();
+  expect(onHistoryChange).toHaveBeenCalledTimes(3);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.getByRole('button', { name: 'Hip socket' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.getByRole('button', { name: 'Acetabulum' })).toBeVisible();
+  fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+  expect(screen.queryByRole('button', { name: 'Acetabulum' })).not.toBeInTheDocument();
+  fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true });
+  expect(screen.getByRole('button', { name: 'Acetabulum' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(screen.queryByRole('button', { name: 'Hip socket' })).not.toBeInTheDocument();
+});
+
+test('empty, cancelled, and unchanged edits do not add history entries', async () => {
+  const onHistoryChange = jest.fn();
+  const view = await renderReady({ onHistoryChange });
+  const surface = prepareLabelSurface(view);
+  fireEvent.contextMenu(surface, { clientX: 500, clientY: 350 });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  expect(onHistoryChange).not.toHaveBeenCalled();
+  fireEvent.contextMenu(surface, { clientX: 500, clientY: 350 });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+  expect(onHistoryChange).not.toHaveBeenCalled();
+  const button = createLabel(surface);
+  fireEvent.contextMenu(button);
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  fireEvent.contextMenu(screen.getByRole('button', { name: 'Acetabulum' }));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Changed draft' } });
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+  expect(onHistoryChange).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: 'Acetabulum' })).toBeVisible();
+});
+
+test('labels follow camera projection and resize, fade with distance/zoom, and hide behind the camera', async () => {
+  const view = await renderReady();
+  const button = createLabel(prepareLabelSurface(view));
+  const anchor = button.closest('[data-model-label]');
+  const card = button.parentElement;
+  const originalOpacity = Number(card.style.opacity);
+  expect(anchor).toHaveStyle({ left: '400px', top: '300px' });
+
+  jest.spyOn(scene.camera, 'getPosition').mockReturnValue([0, 0, 50]);
+  jest.spyOn(scene.view, 'worldToDisplay').mockReturnValue([1000, 700, 0.5]);
+  act(() => scene.cameraListeners.forEach((callback) => callback()));
+  expect(anchor).toHaveStyle({ left: '500px', top: '250px' });
+  expect(Number(card.style.opacity)).toBeLessThan(originalOpacity);
+  expect(card.style.transform).not.toBe('scale(1)');
+  fireEvent.mouseEnter(button);
+  expect(card).toHaveStyle({ opacity: 1, transform: 'scale(1)' });
+  fireEvent.mouseLeave(button);
+
+  scene.camera.getPosition.mockReturnValue([0, 0, 10]);
+  jest.spyOn(scene.camera, 'getParallelScale').mockReturnValue(60);
+  act(() => scene.cameraListeners.forEach((callback) => callback()));
+  expect(Number(card.style.opacity)).toBeLessThan(originalOpacity);
+  screen.getByTestId('model-label-viewport').getBoundingClientRect = () => ({ width: 400, height: 300 });
+  act(() => scene.resizeListeners.forEach((callback) => callback()));
+  expect(anchor).toHaveStyle({ left: '250px', top: '125px' });
+
+  jest.spyOn(scene.camera, 'getDirectionOfProjection').mockReturnValue([0, 0, 1]);
+  act(() => scene.cameraListeners.forEach((callback) => callback()));
+  expect(screen.queryByRole('button', { name: 'Acetabulum' })).not.toBeInTheDocument();
+});
+
+test('a miss gives feedback without creating a floating label', async () => {
+  const view = await renderReady();
+  const surface = prepareLabelSurface(view);
+  jest.spyOn(scene.renderer, 'normalizedDisplayToWorld').mockReturnValue([100, 100, 0]);
+  fireEvent.contextMenu(surface, { clientX: 500, clientY: 350 });
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Right-click a visible part');
+});
+
+test('editing does not trigger viewer shortcuts or history undo and blur saves once', async () => {
+  const onHistoryChange = jest.fn();
+  const view = await renderReady({ onHistoryChange });
+  const button = createLabel(prepareLabelSurface(view));
+  fireEvent.contextMenu(button);
+  const input = screen.getByRole('textbox');
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  fireEvent.keyDown(input, { key: 'c' });
+  fireEvent.keyDown(input, { key: 'r' });
+  fireEvent.keyDown(input, { key: 'z', ctrlKey: true });
+  expect(scene.camera.setPosition).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Navigate' })).toHaveAttribute('aria-pressed', 'true');
+  expect(onHistoryChange).toHaveBeenCalledTimes(1);
+  fireEvent.change(input, { target: { value: 'Pelvis' } });
+  fireEvent.blur(input);
+  expect(screen.getByRole('button', { name: 'Pelvis' })).toBeVisible();
+  expect(onHistoryChange).toHaveBeenCalledTimes(2);
+});
+
+test('label history restores edits and redo tails without replacing the VTK container', async () => {
+  const view = await renderReady();
+  prepareLabelSurface(view);
+  const original = { id: 'label-1', text: 'Pelvis', position: [0, 0, 2] };
+  const edited = { ...original, text: 'Ilium' };
+  const actions = [
+    { type: 'label', labelId: original.id, before: null, after: original },
+    { type: 'label', labelId: original.id, before: original, after: edited },
+    { type: 'label', labelId: original.id, before: edited, after: null },
+  ];
+  const container = scene.genericRenderWindow.setContainer.mock.calls[0][0];
+  view.rerender(<VTKViewer modelUrl="/scan-a" restoredHistory={{ cursor: 2, actions }} historyRestoreKey={1} />);
+  expect(container.isConnected).toBe(true);
+  expect(screen.getByRole('button', { name: 'Ilium' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(screen.queryByRole('button', { name: 'Ilium' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.getByRole('button', { name: 'Ilium' })).toBeVisible();
+  fireEvent.contextMenu(screen.getByRole('button', { name: 'Ilium' }));
+  view.rerender(<VTKViewer modelUrl="/scan-b" restoredHistory={{ cursor: 0, actions: [] }} historyRestoreKey={2} />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Cut' })).toBeEnabled());
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Ilium' })).not.toBeInTheDocument();
+  expect(container.isConnected).toBe(true);
+});
+
+test('right-click labels work with the cut overlay without cutting the volume', async () => {
+  const view = await renderReady();
+  prepareLabelSurface(view);
+  const svg = selectCut();
+  const originalValues = scene.values.slice();
+  createLabel(svg);
+  expect(scene.values).toEqual(originalValues);
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.queryByRole('button', { name: 'Acetabulum' })).not.toBeInTheDocument();
+  expect(scene.values).toEqual(originalValues);
+});
+
+test('labels and cuts share chronological undo and a new label discards redo', async () => {
+  const onHistoryChange = jest.fn();
+  const view = await renderReady({ onHistoryChange });
+  const surface = prepareLabelSurface(view);
+  const original = scene.values.slice();
+  drag(selectCut());
+  const cutValues = scene.values.slice();
+  expect(cutValues).not.toEqual(original);
+  createLabel(surface);
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.queryByRole('button', { name: 'Acetabulum' })).not.toBeInTheDocument();
+  expect(scene.values).toEqual(cutValues);
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(scene.values).toEqual(original);
+  createLabel(surface, 'Ilium');
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  expect(onHistoryChange.mock.calls.at(-1)[0].actions).toEqual([
+    expect.objectContaining({ type: 'label', after: expect.objectContaining({ text: 'Ilium' }) }),
+  ]);
+});
+
+test('replacing saved history restores original samples before replaying cuts and labels', async () => {
+  const onHistoryChange = jest.fn();
+  const view = await renderReady({ onHistoryChange });
+  prepareLabelSurface(view);
+  const original = scene.values.slice();
+  drag(selectCut());
+  const cutValues = scene.values.slice();
+  const cut = onHistoryChange.mock.calls.at(-1)[0].actions[0];
+  const label = { id: 'label-1', text: 'Pelvis', position: [0, 0, 2] };
+  view.rerender(<VTKViewer modelUrl="/scan-a" restoredHistory={{ cursor: 2, actions: [
+    cut, { type: 'label', labelId: label.id, before: null, after: label },
+  ] }} historyRestoreKey={1} />);
+  expect(scene.values).toEqual(cutValues);
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(scene.values).toEqual(cutValues);
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(scene.values).toEqual(original);
 });

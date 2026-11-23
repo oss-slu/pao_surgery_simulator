@@ -956,6 +956,35 @@ def _validate_marker_stroke_action(action, index):
     }, None
 
 
+def _validate_label_action(action, index):
+    prefix = f"Action {index + 1}"
+    label_id = action.get("labelId")
+    if not isinstance(label_id, str) or not label_id.strip() or len(label_id) > 200:
+        return None, f"{prefix}: labelId must be a non-empty string of at most 200 characters"
+
+    snapshots = {}
+    for field in ("before", "after"):
+        if field not in action:
+            return None, f"{prefix}: {field} is required (object or null)"
+        value = action[field]
+        if value is None:
+            snapshots[field] = None
+            continue
+        if not isinstance(value, dict) or value.get("id") != label_id:
+            return None, f"{prefix}: {field}.id must match labelId"
+        text = value.get("text")
+        if not isinstance(text, str) or not text.strip() or len(text) > 500:
+            return None, f"{prefix}: {field}.text must contain 1 to 500 characters"
+        position, error = _parse_vector3(value.get("position"), f"{prefix}: {field}.position")
+        if error:
+            return None, error
+        snapshots[field] = {"id": label_id, "text": text.strip(), "position": position}
+
+    if snapshots["before"] is None and snapshots["after"] is None:
+        return None, f"{prefix}: a label action must have a before or after snapshot"
+    return {"type": "label", "labelId": label_id, **snapshots}, None
+
+
 def _validate_history_payload(data):
     if not isinstance(data, dict):
         return None, "Missing data"
@@ -983,8 +1012,10 @@ def _validate_history_payload(data):
             parsed, error = _validate_cut_action(action, index)
         elif action_type == "markerStroke":
             parsed, error = _validate_marker_stroke_action(action, index)
+        elif action_type == "label":
+            parsed, error = _validate_label_action(action, index)
         else:
-            return None, f"Action {index + 1}: type must be 'cut' or 'markerStroke'"
+            return None, f"Action {index + 1}: type must be 'cut', 'markerStroke', or 'label'"
         if error:
             return None, error
         parsed_actions.append(parsed)
