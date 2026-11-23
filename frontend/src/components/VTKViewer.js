@@ -10,6 +10,7 @@ import {
   undoEdit,
 } from '../editHistory';
 import { toPersistedActions } from '../historyApi';
+import ModelLabels from './ModelLabels';
 import '@kitware/vtk.js/Rendering/Profiles/Volume';
 import vtkGenericRenderWindow from '@kitware/vtk.js/Rendering/Misc/GenericRenderWindow';
 import vtkVolume from '@kitware/vtk.js/Rendering/Core/Volume';
@@ -498,6 +499,7 @@ function VTKViewer({
   const previousPositionRef = useRef(null);
   const activeStrokeRef = useRef(null);
   const strokesRef = useRef([]);
+  const labelsRef = useRef([]);
   const drawStrokesRef = useRef(null);
   const editHistoryRef = useRef(createEditHistory());
   const replayingHistoryRef = useRef(false);
@@ -514,14 +516,17 @@ function VTKViewer({
   const [cutStatus, setCutStatus] = useState('');
   const [isCutDragging, setIsCutDragging] = useState(false);
   const [isMarkerDrawing, setIsMarkerDrawing] = useState(false);
+  const [modelLabels, setModelLabels] = useState([]);
+  const [isLabelEditing, setIsLabelEditing] = useState(false);
 
   onMarkerStrokeAddedRef.current = onMarkerStrokeAdded;
   onMarkerStrokeRemovedRef.current = onMarkerStrokeRemoved;
   onHistoryChangeRef.current = onHistoryChange;
 
   const toolsDisabled = !modelUrl || !isVolumeReady || isLoading || Boolean(error);
-  const historyToolActive = activeTool === 'cut' || activeTool === 'marker';
-  const historyBusy = isCutDragging || isMarkerDrawing;
+  const historyToolActive = activeTool === 'cut' || activeTool === 'marker' ||
+    editHistoryRef.current.entries.some((entry) => entry.type === 'label');
+  const historyBusy = isCutDragging || isMarkerDrawing || isLabelEditing;
 
   const syncHistoryButtons = useCallback(() => {
     const history = editHistoryRef.current;
@@ -536,6 +541,28 @@ function VTKViewer({
       cursor: history.cursor,
       actions: toPersistedActions(history.entries),
     });
+  }, []);
+
+  const applyLabelEntry = useCallback((entry, mode) => {
+    const replacement = mode === 'undo' ? entry.before : entry.after;
+    labelsRef.current = labelsRef.current.filter((item) => item.id !== entry.labelId);
+    if (replacement) labelsRef.current.push(replacement);
+    setModelLabels([...labelsRef.current]);
+  }, []);
+
+  const recordLabel = useCallback((entry) => {
+    applyLabelEntry(entry, 'redo');
+    pushEdit(editHistoryRef.current, entry);
+    syncHistoryButtons();
+    emitHistoryChange();
+  }, [applyLabelEntry, syncHistoryButtons, emitHistoryChange]);
+
+  const pickLabelPosition = useCallback((event) => {
+    const vtk = context.current;
+    if (!vtk?.imageData) return null;
+    return findVolumePosition(
+      event, vtkContainerRef.current, vtk.renderWindow, vtk.renderer, vtk.imageData, vtk.ofun
+    );
   }, []);
 
   useEffect(() => {
@@ -692,12 +719,19 @@ function VTKViewer({
       setCutStatus('Last marker stroke undone.');
       emitHistoryChange();
     }
+    if (entry.type === 'label') {
+      undoEdit(history);
+      applyLabelEntry(entry, 'undo');
+      syncHistoryButtons();
+      emitHistoryChange();
+    }
   }, [
     toolsDisabled,
     historyToolActive,
     historyBusy,
     applyCutEntry,
     applyMarkerStrokeEntry,
+    applyLabelEntry,
     syncHistoryButtons,
     emitHistoryChange,
   ]);
@@ -729,12 +763,19 @@ function VTKViewer({
       setCutStatus('Last marker stroke redone.');
       emitHistoryChange();
     }
+    if (entry.type === 'label') {
+      redoEdit(history);
+      applyLabelEntry(entry, 'redo');
+      syncHistoryButtons();
+      emitHistoryChange();
+    }
   }, [
     toolsDisabled,
     historyToolActive,
     historyBusy,
     applyCutEntry,
     applyMarkerStrokeEntry,
+    applyLabelEntry,
     syncHistoryButtons,
     emitHistoryChange,
   ]);
@@ -807,6 +848,9 @@ function VTKViewer({
 
     const onKeyDown = (event) => {
       if (historyBusy || toolsDisabled) return;
+      if (event.defaultPrevented || event.target?.closest?.(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+      )) return;
       if (!(event.ctrlKey || event.metaKey)) return;
 
       const key = event.key.toLowerCase();
@@ -1039,6 +1083,9 @@ function VTKViewer({
     }
     context.current.imageData = null;
     strokesRef.current = [];
+    labelsRef.current = [];
+    setModelLabels([]);
+    setIsLabelEditing(false);
     setIsLoading(true);
     setError('');
     setIsVolumeReady(false);
@@ -1112,8 +1159,16 @@ function VTKViewer({
     );
 
     replayingHistoryRef.current = true;
+    // A server conflict can replace history on an already edited volume.
+    // Restore its original samples before replaying the replacement snapshot.
+    const previousHistory = editHistoryRef.current;
+    for (let index = previousHistory.cursor - 1; index >= 0; index -= 1) {
+      const entry = previousHistory.entries[index];
+      if (entry.type === 'cut') applyCutEntry(entry, 'undo');
+    }
     clearEdits(editHistoryRef.current);
     strokesRef.current = [];
+    labelsRef.current = [];
 
     try {
       for (let index = 0; index < actions.length; index += 1) {
@@ -1149,6 +1204,9 @@ function VTKViewer({
               imageData: null,
             });
           }
+        } else if (action.type === 'label') {
+          pushEdit(editHistoryRef.current, action);
+          if (index < cursor) applyLabelEntry(action, 'redo');
         } else if (action.type === 'markerStroke') {
           const entry = {
             type: 'markerStroke',
@@ -1174,50 +1232,62 @@ function VTKViewer({
       }
 
       editHistoryRef.current.cursor = cursor;
+      setModelLabels([...labelsRef.current]);
       syncHistoryButtons();
       drawStrokesRef.current?.();
       context.current.renderWindow.render();
     } finally {
       replayingHistoryRef.current = false;
     }
-  }, [isVolumeReady, restoredHistory, historyRestoreKey, syncHistoryButtons]);
+  }, [isVolumeReady, restoredHistory, historyRestoreKey, syncHistoryButtons, applyLabelEntry, applyCutEntry]);
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 0, position: 'relative' }}>
-      <div
-        ref={vtkContainerRef}
-        style={{
-          width: '100%',
-          height: '100%',
-          cursor: activeTool === 'navigate' ? 'grab' : 'crosshair',
-        }}
-      />
+      <ModelLabels
+        resetKey={`${modelUrl}-${historyRestoreKey}`}
+        vtk={context.current}
+        disabled={toolsDisabled}
+        busy={isCutDragging || isMarkerDrawing}
+        labels={modelLabels}
+        pickPosition={pickLabelPosition}
+        onChange={recordLabel}
+        onEditingChange={setIsLabelEditing}
+      >
+        <div
+          ref={vtkContainerRef}
+          style={{
+            width: '100%',
+            height: '100%',
+            cursor: activeTool === 'navigate' ? 'grab' : 'crosshair',
+          }}
+        />
 
-      <canvas
-        ref={drawingCanvasRef}
-        aria-hidden="true"
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-        }}
-      />
+        <canvas
+          ref={drawingCanvasRef}
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            pointerEvents: 'none',
+          }}
+        />
 
-      {activeTool === 'cut' &&
-        !toolsDisabled &&
-        context.current && (
-          <CutOverlay
-            key={modelUrl}
-            vtk={context.current}
-            thickness={cutThickness}
-            onCut={recordCut}
-            status={cutStatus}
-            onStatusChange={setCutStatus}
-            onDragChange={setIsCutDragging}
-          />
-        )}
+        {activeTool === 'cut' &&
+          !toolsDisabled &&
+          context.current && (
+            <CutOverlay
+              key={modelUrl}
+              vtk={context.current}
+              thickness={cutThickness}
+              onCut={recordCut}
+              status={cutStatus}
+              onStatusChange={setCutStatus}
+              onDragChange={setIsCutDragging}
+            />
+          )}
+      </ModelLabels>
 
       <fieldset
         style={{
@@ -1266,6 +1336,9 @@ function VTKViewer({
           />
           Emphasize dense tissue
         </label>
+        <p style={{ margin: '0.6rem 0 0', fontSize: '0.8rem', color: '#c5def7' }}>
+          Right-click the model to add a label.
+        </p>
         <div
           role="group"
           aria-label="Viewer tools"
@@ -1371,6 +1444,9 @@ function VTKViewer({
             <li><kbd>M</kbd> Marker / draw</li>
             <li><kbd>C</kbd> Cut</li>
             <li><kbd>R</kbd> Reset view</li>
+            <li>Right-click model: add label</li>
+            <li>Right-click label: edit / delete</li>
+            <li><kbd>Enter</kbd> Save label · <kbd>Esc</kbd> Cancel</li>
           </ul>
         </details>
       </fieldset>

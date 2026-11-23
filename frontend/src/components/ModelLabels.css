@@ -1,0 +1,124 @@
+.model-label-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.model-label-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.model-label-anchor {
+  position: absolute;
+  color: #d6eaff;
+}
+
+.model-label-leader {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  stroke: currentColor;
+  fill: currentColor;
+  pointer-events: none;
+}
+
+.model-label-card {
+  position: absolute;
+  width: max-content;
+  box-sizing: border-box;
+  border: 1px solid #8195ab;
+  border-radius: 5px;
+  background: #102034;
+  box-shadow: 0 1px 4px #0008;
+  pointer-events: auto;
+  overflow: auto;
+  transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+
+.model-label-anchor.is-highlighted {
+  color: #67e8f9;
+}
+
+.model-label-anchor.is-highlighted .model-label-card {
+  border-color: #67e8f9;
+  background: #15334b;
+}
+
+.model-label-text {
+  display: block;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: 14px/1.35 sans-serif;
+  text-align: left;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  cursor: text;
+}
+
+.model-label-text:focus-visible,
+.model-label-delete:focus-visible {
+  outline: 2px solid #67e8f9;
+  outline-offset: 2px;
+}
+
+.model-label-editor {
+  padding: 6px;
+  width: 230px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.model-label-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.model-label-editor input {
+  width: 100%;
+  min-width: 0;
+  padding: 5px;
+  border: 1px solid #67e8f9;
+  border-radius: 3px;
+  background: #091725;
+  color: white;
+  font: 14px sans-serif;
+}
+
+.model-label-delete {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #fda4af;
+  border-radius: 3px;
+  background: #53222e;
+  color: #ffe4e6;
+  font: 22px/1 sans-serif;
+  cursor: pointer;
+}
+
+.model-label-hint {
+  display: block;
+  margin-top: 5px;
+  color: #b9d4e5;
+  font: 11px sans-serif;
+}
+
+.model-label-status {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 8;
+  padding: 8px;
+  color: white;
+  background: #102034e8;
+  pointer-events: none;
+}

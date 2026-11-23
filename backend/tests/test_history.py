@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from models import Dicom, ScanHistory
 
 
@@ -42,6 +44,16 @@ def _sample_actions():
     ]
 
 
+def _label_actions():
+    original = {"id": "label-1", "text": "Acetabulum", "position": [1, 2, 3]}
+    edited = {**original, "text": "Hip socket"}
+    return [
+        {"type": "label", "labelId": "label-1", "before": None, "after": original},
+        {"type": "label", "labelId": "label-1", "before": original, "after": edited},
+        {"type": "label", "labelId": "label-1", "before": edited, "after": None},
+    ]
+
+
 @patch("app.connect")
 def test_get_history_returns_empty_document_when_missing(mock_connect, authenticated_client):
     session = _session(mock_connect)
@@ -61,12 +73,12 @@ def test_get_history_returns_empty_document_when_missing(mock_connect, authentic
     }
 
 
+@pytest.mark.parametrize("actions", [_sample_actions(), _label_actions()])
 @patch("app.connect")
 def test_put_history_round_trip_preserves_cursor_and_redo_tail(
-    mock_connect, authenticated_client
+    mock_connect, authenticated_client, actions
 ):
     session = _session(mock_connect)
-    actions = _sample_actions()
     stored = {}
 
     def query_side_effect(model):
@@ -99,6 +111,52 @@ def test_put_history_round_trip_preserves_cursor_and_redo_tail(
     assert get_body["revision"] == 1
     assert get_body["cursor"] == 1
     assert get_body["actions"] == actions
+
+
+@pytest.mark.parametrize("update, error_field", [
+    ({"labelId": ""}, "labelId"),
+    ({"labelId": "a" * 201}, "labelId"),
+    ({"before": None, "after": None}, "snapshot"),
+    ({"after": {"id": "other", "text": "Pelvis", "position": [1, 2, 3]}}, "id"),
+    ({"after": {"id": "label-1", "text": "  ", "position": [1, 2, 3]}}, "text"),
+    ({"after": {"id": "label-1", "text": "a" * 501, "position": [1, 2, 3]}}, "text"),
+    ({"after": {"id": "label-1", "text": "Pelvis", "position": [1, 2]}}, "position"),
+    ({"after": {"id": "label-1", "text": "Pelvis", "position": [1, 2, "NaN"]}}, "position"),
+    ({"before": "invalid"}, "before"),
+])
+@patch("app.connect")
+def test_put_history_rejects_invalid_label_snapshots(
+    mock_connect, authenticated_client, update, error_field
+):
+    session = _session(mock_connect)
+    session.query.return_value.filter_by.return_value.first.return_value = Dicom(
+        upload_id="scan-1", user_id=1
+    )
+    action = {**_label_actions()[0], **update}
+    response = authenticated_client.put(
+        "/api/scans/scan-1/history",
+        json={"revision": 0, "cursor": 1, "actions": [action]},
+    )
+    assert response.status_code == 400
+    assert error_field in response.get_json()["error"]
+    session.add.assert_not_called()
+
+
+@patch("app.connect")
+def test_label_history_requires_explicit_snapshots(mock_connect, authenticated_client):
+    session = _session(mock_connect)
+    session.query.return_value.filter_by.return_value.first.return_value = Dicom(
+        upload_id="scan-1", user_id=1
+    )
+    action = _label_actions()[0]
+    del action["before"]
+    response = authenticated_client.put(
+        "/api/scans/scan-1/history",
+        json={"revision": 0, "cursor": 1, "actions": [action]},
+    )
+    assert response.status_code == 400
+    assert "before is required" in response.get_json()["error"]
+    session.add.assert_not_called()
 
 
 @patch("app.connect")
