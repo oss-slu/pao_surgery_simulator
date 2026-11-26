@@ -211,21 +211,55 @@ test('R restores the initial camera pose and renders after the volume is ready',
   expect(screen.getByText('Keyboard shortcuts').parentElement).toHaveTextContent('R Reset view');
 });
 
+test('Z undoes and X redoes the latest history edit', async () => {
+  await renderReady();
+  const original = scene.values.slice();
+  drag(selectCut());
+  const cutValues = scene.values.slice();
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+
+  fireEvent.keyDown(window, { key: 'z' });
+  expect(scene.values).toEqual(original);
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+
+  fireEvent.keyDown(window, { key: 'x' });
+  expect(scene.values).toEqual(cutValues);
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  expect(screen.getByText('Keyboard shortcuts').parentElement)
+    .toHaveTextContent('Z Undo · X Redo');
+});
+
 test('keyboard shortcuts do not activate from text fields or modified key combinations', async () => {
   await renderReady();
+  drag(selectCut());
+  const cutValues = scene.values.slice();
   const textField = document.createElement('textarea');
   document.body.appendChild(textField);
 
   fireEvent.keyDown(textField, { key: 'm' });
   fireEvent.keyDown(textField, { key: 'r' });
+  fireEvent.keyDown(textField, { key: 'z' });
+  fireEvent.keyDown(textField, { key: 'x' });
+  expect(scene.values).toEqual(cutValues);
   textField.remove();
-  expect(screen.getByRole('button', { name: 'Navigate' })).toHaveAttribute('aria-pressed', 'true');
   expect(scene.renderer.getActiveCamera().setPosition).not.toHaveBeenCalled();
 
   fireEvent.keyDown(window, { key: 'm', ctrlKey: true });
+  expect(scene.values).toEqual(cutValues);
   fireEvent.keyDown(window, { key: 'c', altKey: true });
+  expect(scene.values).toEqual(cutValues);
   fireEvent.keyDown(window, { key: 'n', shiftKey: true });
-  expect(screen.getByRole('button', { name: 'Navigate' })).toHaveAttribute('aria-pressed', 'true');
+  expect(scene.values).toEqual(cutValues);
+  fireEvent.keyDown(window, { key: 'z', altKey: true });
+  expect(scene.values).toEqual(cutValues);
+  fireEvent.keyDown(window, { key: 'x', ctrlKey: true });
+  expect(scene.values).toEqual(cutValues);
+  fireEvent.keyDown(window, { key: 'x', altKey: true });
+  expect(scene.values).toEqual(cutValues);
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
 });
 
 test('R does not reset the view while the volume is loading', () => {
