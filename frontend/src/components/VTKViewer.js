@@ -565,57 +565,6 @@ function VTKViewer({
     );
   }, []);
 
-  useEffect(() => {
-    const toolByKey = {
-      n: 'navigate',
-      m: 'marker',
-      c: 'cut',
-    };
-
-    const onKeyDown = (event) => {
-      if (
-        toolsDisabled ||
-        event.defaultPrevented ||
-        event.repeat ||
-        event.altKey ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.shiftKey ||
-        event.target?.closest?.(
-          'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
-        )
-      ) {
-        return;
-      }
-
-      if (event.key.toLowerCase() === 'r') {
-        const vtk = context.current;
-        if (!vtk?.initialCameraState) return;
-
-        event.preventDefault();
-        const camera = vtk.renderer.getActiveCamera();
-        const initialCameraState = vtk.initialCameraState;
-        camera.setPosition(...initialCameraState.position);
-        camera.setFocalPoint(...initialCameraState.focalPoint);
-        camera.setViewUp(...initialCameraState.viewUp);
-        camera.setParallelProjection(initialCameraState.parallelProjection);
-        camera.setParallelScale(initialCameraState.parallelScale);
-        camera.setClippingRange(...initialCameraState.clippingRange);
-        vtk.renderWindow.render();
-        return;
-      }
-
-      const tool = toolByKey[event.key.toLowerCase()];
-      if (!tool) return;
-
-      event.preventDefault();
-      setActiveTool(tool);
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [toolsDisabled]);
-
   const recordCut = useCallback((cut) => {
     if (cut.imageData !== context.current?.mapper.getInputData()) return;
 
@@ -778,6 +727,79 @@ function VTKViewer({
     applyLabelEntry,
     syncHistoryButtons,
     emitHistoryChange,
+  ]);
+
+  useEffect(() => {
+    const toolByKey = {
+      n: 'navigate',
+      m: 'marker',
+      c: 'cut',
+    };
+
+    const onKeyDown = (event) => {
+      if (
+        toolsDisabled ||
+        event.defaultPrevented ||
+        event.repeat ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.target?.closest?.(
+          'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
+        )
+      ) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === 'r') {
+        const vtk = context.current;
+        if (!vtk?.initialCameraState) return;
+
+        event.preventDefault();
+        const camera = vtk.renderer.getActiveCamera();
+        const initialCameraState = vtk.initialCameraState;
+        camera.setPosition(...initialCameraState.position);
+        camera.setFocalPoint(...initialCameraState.focalPoint);
+        camera.setViewUp(...initialCameraState.viewUp);
+        camera.setParallelProjection(initialCameraState.parallelProjection);
+        camera.setParallelScale(initialCameraState.parallelScale);
+        camera.setClippingRange(...initialCameraState.clippingRange);
+        vtk.renderWindow.render();
+        return;
+      }
+
+      if (key === 'z' || key === 'x') {
+        const canApplyHistory = key === 'z' ? canUndo : canRedo;
+        if (!historyToolActive || historyBusy || !canApplyHistory) return;
+
+        event.preventDefault();
+        if (key === 'z') {
+          handleUndo();
+        } else {
+          handleRedo();
+        }
+        return;
+      }
+
+      const tool = toolByKey[key];
+      if (!tool) return;
+
+      event.preventDefault();
+      setActiveTool(tool);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    toolsDisabled,
+    historyToolActive,
+    historyBusy,
+    canUndo,
+    canRedo,
+    handleUndo,
+    handleRedo,
   ]);
 
   useEffect(() => {
@@ -1444,6 +1466,7 @@ function VTKViewer({
             <li><kbd>M</kbd> Marker / draw</li>
             <li><kbd>C</kbd> Cut</li>
             <li><kbd>R</kbd> Reset view</li>
+            <li><kbd>Z</kbd> Undo · <kbd>X</kbd> Redo</li>
             <li>Right-click model: add label</li>
             <li>Right-click label: edit / delete</li>
             <li><kbd>Enter</kbd> Save label · <kbd>Esc</kbd> Cancel</li>
